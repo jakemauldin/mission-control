@@ -16,6 +16,9 @@ import CostsView from "./views/Costs";
 import IntelligenceView from "./views/Intelligence";
 import ExpertiseView from "./views/Expertise";
 import RoadmapView from "./views/Roadmap";
+import BillingView from "./views/Billing";
+import OpenBillsView from "./views/OpenBills";
+import LandFinderView from "./views/LandFinder";
 
 export default function App() {
   const [view, setView] = useState("site");
@@ -136,10 +139,13 @@ export default function App() {
             {view === "site" && <SitePlan agents={agents} pos={pos} selAgent={selAgent} setSelAgent={setSelAgent} buildProg={buildProg} paused={paused} setPaused={setPaused} liveCount={liveCount} healthData={healthData} />}
             {view === "systems" && <SystemsView crons={cronsData.crons} handleRunCron={handleRunCron} healthData={healthData} cronsLive={cronsData.live} />}
             {view === "jobs" && <JobsView jobs={jobsData.jobs} live={jobsData.live} loading={jobsData.loading} />}
+            {view === "billing" && <BillingView jobs={jobsData.jobs} />}
+            {view === "bills" && <OpenBillsView jobs={jobsData.jobs} />}
             {view === "crew" && <CrewView agents={agents} selAgent={selAgent} setSelAgent={setSelAgent} />}
             {view === "costs" && <CostsView />}
             {view === "intel" && <IntelligenceView insights={insights} intelligence={intelligence} clawStatus={clawStatus} />}
             {view === "expertise" && <ExpertiseView expertise={expertise} />}
+            {view === "land" && <LandFinderView />}
             {view === "roadmap" && <RoadmapView />}
           </div>
 

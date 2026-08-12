@@ -1,0 +1,18 @@
+{
+  "contractor": {
+    "name": "Rising Creek Construction LLC",
+    "address": "Springtown, TX"
+  },
+  "architect": {
+    "name": "",
+    "address": ""
+  },
+  "owner": {
+    "name": "",
+    "address": ""
+  },
+  "defaultRetainagePctWork": 10,
+  "defaultRetainagePctMaterial": 10,
+  "signatureName": "Jake Mauldin",
+  "signatureTitle": "President"
+}

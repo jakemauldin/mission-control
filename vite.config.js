@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
+    allowedHosts: ['risingcreek-ai.taild0b4c6.ts.net', 'risingcreek-ai'],
     host: true,
     proxy: {
       '/api': {

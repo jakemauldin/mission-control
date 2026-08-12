@@ -6,10 +6,13 @@ const TABS = [
   { k: "site", l: "Site" },
   { k: "systems", l: "Systems" },
   { k: "jobs", l: "Jobs" },
+  { k: "billing", l: "Billing" },
+  { k: "bills", l: "AP Bills" },
   { k: "crew", l: "Crew" },
   { k: "costs", l: "Costs" },
   { k: "intel", l: "Intel" },
   { k: "expertise", l: "Growth" },
+  { k: "land", l: "Land" },
   { k: "roadmap", l: "Roadmap" },
 ];
 

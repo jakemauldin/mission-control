@@ -25,3 +25,7 @@ server/.env
 *.njsproj
 *.sln
 *.sw?
+
+# Generated knowledge graph (local, 35M+ — never commit)
+graphify-out/
+**/graphify-out/
