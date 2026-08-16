@@ -24,7 +24,8 @@ started *another* instance. vite silently moved to the next free port (5174, 517
 `node --watch` sat idle on `EADDRINUSE :3080`, and nothing reaped them: **48 vite listeners
 + 50 orphaned `npm run dev` trees, ~1.8 GB RSS**. Guards now in place:
 
-- `start.sh` skips the start when something already listens on :5173 (idempotent).
+- `start.sh` converges to one instance: both :5173 and :3080 up → untouched; one half dead (e.g. the API
+  crashed under `node --watch`) → that whole tree is killed by PID-walk and restarted; neither → started.
 - `vite --strictPort` (+ `server.strictPort` in `vite.config.js`): a second instance
   **exits with an error** instead of squatting a new port.
 - `concurrently --kill-others-on-fail`: when vite refuses to start, the API watcher is
