@@ -16,6 +16,7 @@ import CostsView from "./views/Costs";
 import IntelligenceView from "./views/Intelligence";
 import ExpertiseView from "./views/Expertise";
 import RoadmapView from "./views/Roadmap";
+import ProjectsView from "./views/Projects";
 import BillingView from "./views/Billing";
 import OpenBillsView from "./views/OpenBills";
 import LandFinderView from "./views/LandFinder";
@@ -147,6 +148,7 @@ export default function App() {
             {view === "expertise" && <ExpertiseView expertise={expertise} />}
             {view === "land" && <LandFinderView />}
             {view === "roadmap" && <RoadmapView />}
+            {view === "projects" && <ProjectsView />}
           </div>
 
           {/* Right column */}

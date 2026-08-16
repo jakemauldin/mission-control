@@ -17,6 +17,7 @@ import {
   createPdfBuffer,
 } from "./lib/billing.js";
 import dotenv from "dotenv";
+import { getProjects, createProject, updateProject, addTodo, updateTodo, deleteTodo, slugify } from "./lib/projects.js";
 
 dotenv.config({ path: join(import.meta.dirname, ".env") });
 dotenv.config({ path: join(import.meta.dirname, "..", ".env") });
@@ -27,6 +28,36 @@ const PORT = process.env.PORT || 3080;
 
 app.use(cors());
 app.use(express.json());
+
+// ── Projects: per-project running to-do w/ progress dates (2026-08-16) ──
+// Store: ~/services/projects/projects.json (+ IN-FLIGHT.md headings/plate, read-only).
+app.get("/api/projects", (_req, res) => {
+  try { res.json(getProjects()); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/projects", (req, res) => {
+  const { name, status, progressNote } = req.body || {};
+  if (!name) return res.status(400).json({ error: "name required" });
+  try { res.json(createProject({ name, status, progressNote })); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.patch("/api/projects/:id", (req, res) => {
+  try { res.json(updateProject(req.params.id, req.body || {})); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/projects/:id/todos", (req, res) => {
+  const { text, name, by } = req.body || {};
+  if (!text) return res.status(400).json({ error: "text required" });
+  try { res.json(addTodo(req.params.id, text, { name, by })); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.patch("/api/projects/:id/todos/:tid", (req, res) => {
+  try {
+    const t = updateTodo(req.params.id, req.params.tid, req.body || {});
+    if (!t) return res.status(404).json({ error: "not found" });
+    res.json(t);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete("/api/projects/:id/todos/:tid", (req, res) => {
+  try { res.json({ ok: deleteTodo(req.params.id, req.params.tid) }); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/projects/slug/:name", (req, res) => res.json({ id: slugify(req.params.name) }));
 
 // ── Health: read latest health-*.log ─────────────────────────
 app.get("/api/health", (_req, res) => {
@@ -64,8 +95,8 @@ app.get("/api/jobs", async (_req, res) => {
 });
 
 // ── OpenClaw status ──────────────────────────────────────────
-app.get("/api/claw/status", (_req, res) => {
-  const result = execDockerJSON("openclaw status --json");
+app.get("/api/claw/status", async (_req, res) => {
+  const result = await execDockerJSON("openclaw status --json");
   if (!result.ok) {
     return res.json({ ok: false, fallback: true, error: result.error });
   }
@@ -73,8 +104,8 @@ app.get("/api/claw/status", (_req, res) => {
 });
 
 // ── OpenClaw insights ────────────────────────────────────────
-app.get("/api/insights", (_req, res) => {
-  const result = execDocker("cat /home/node/.openclaw/workspace/INSIGHTS.md");
+app.get("/api/insights", async (_req, res) => {
+  const result = await execDocker("cat /home/node/.openclaw/workspace/INSIGHTS.md");
   if (!result.ok) {
     return res.json({ ok: false, fallback: true, error: result.error });
   }
@@ -82,8 +113,8 @@ app.get("/api/insights", (_req, res) => {
 });
 
 // ── OpenClaw expertise ───────────────────────────────────────
-app.get("/api/expertise", (_req, res) => {
-  const result = execDocker("cat /home/node/.openclaw/workspace/EXPERTISE.md");
+app.get("/api/expertise", async (_req, res) => {
+  const result = await execDocker("cat /home/node/.openclaw/workspace/EXPERTISE.md");
   if (!result.ok) {
     return res.json({ ok: false, fallback: true, error: result.error });
   }
@@ -91,8 +122,8 @@ app.get("/api/expertise", (_req, res) => {
 });
 
 // ── OpenClaw crons ───────────────────────────────────────────
-app.get("/api/crons", (_req, res) => {
-  const result = execDockerJSON("cat /home/node/.openclaw/cron/jobs.json");
+app.get("/api/crons", async (_req, res) => {
+  const result = await execDockerJSON("cat /home/node/.openclaw/cron/jobs.json");
   if (!result.ok) {
     return res.json({ ok: false, fallback: true, error: result.error });
   }
@@ -100,9 +131,9 @@ app.get("/api/crons", (_req, res) => {
 });
 
 // ── Intelligence daily brief ─────────────────────────────────
-app.get("/api/intelligence/today", (_req, res) => {
+app.get("/api/intelligence/today", async (_req, res) => {
   const today = new Date().toISOString().slice(0, 10);
-  const result = execDocker(
+  const result = await execDocker(
     `cat /home/node/.openclaw/workspace/memory/intelligence/brief-${today}.md`
   );
   if (!result.ok) {
@@ -112,14 +143,14 @@ app.get("/api/intelligence/today", (_req, res) => {
 });
 
 // ── Dispatch command to OpenClaw ─────────────────────────────
-app.post("/api/claw/dispatch", (req, res) => {
+app.post("/api/claw/dispatch", async (req, res) => {
   const { command } = req.body;
   if (!command || typeof command !== "string") {
     return res.status(400).json({ ok: false, error: "command is required" });
   }
   // Sanitize: allow only safe characters
   const sanitized = command.replace(/[^a-zA-Z0-9 _\-.,/'"@#:=]/g, "");
-  const result = execDocker(`openclaw ${sanitized}`);
+  const result = await execDocker(`openclaw ${sanitized}`, { cacheMs: 0 });
   if (!result.ok) {
     return res.json({ ok: false, error: result.error });
   }
@@ -127,9 +158,9 @@ app.post("/api/claw/dispatch", (req, res) => {
 });
 
 // ── AI costs (parse from daily brief or dedicated file) ──────
-app.get("/api/costs", (_req, res) => {
+app.get("/api/costs", async (_req, res) => {
   const today = new Date().toISOString().slice(0, 10);
-  const result = execDocker(
+  const result = await execDocker(
     `cat /home/node/.openclaw/workspace/memory/intelligence/brief-${today}.md`
   );
   if (!result.ok) {
@@ -368,7 +399,7 @@ setInterval(async () => {
   if (clients.size === 0) return;
 
   // Poll claw status
-  const clawResult = execDockerJSON("openclaw status --json");
+  const clawResult = await execDockerJSON("openclaw status --json");
   if (clawResult.ok) {
     const hash = JSON.stringify(clawResult.data);
     if (hash !== lastHealthHash) {

@@ -59,3 +59,22 @@ The React Compiler is not enabled on this template because of its impact on dev 
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+
+## Projects view (2026-08-16)
+
+Per-project running to-do with progress/last-touched dates — Jake: *"so whenever I open the project I
+know what I was working on or left undone, and me and you can update that as we progress … it doesn't
+get covered up by new sessions."*
+
+- UI: **Projects** tab. Cards = `~/services/IN-FLIGHT.md` `## ` sections (auto, read-only; status from
+  the heading emoji, date from the heading) + the "JAKE'S PLATE" table (rows → to-dos with their status)
+  + manual projects with editable to-dos / progress note / status.
+- Store: **`~/services/projects/projects.json`** (in the services repo on purpose — GitOps'd, backed up,
+  any agent can read/write it). Writes are atomic (tmp + rename).
+- API: `GET /api/projects` · `POST /api/projects {name}` · `PATCH /api/projects/:id {status|progressNote|name}`
+  · `POST /api/projects/:id/todos {text,name?,by?}` · `PATCH …/todos/:tid {done|text}` · `DELETE …/todos/:tid`.
+- CLI for agents/sessions: `scripts/todo.sh add "<project>" "<to-do>"` · `done "<project>" "<substring>"`
+  · `note "<project>" "<progress note>"` · `list ["<project>"]`. Adding a to-do to an IN-FLIGHT-only
+  card makes it a manual project (same slug), so the two sources merge.
+- Perf fix shipped alongside: `server/lib/docker.js` was `execSync` — every `docker exec` froze the API
+  9-19 s and every panel queued behind it ("No data", "loading…"). Now async + 20 s read cache.

@@ -4,6 +4,7 @@ import CommandBar from "./CommandBar";
 
 const TABS = [
   { k: "site", l: "Site" },
+  { k: "projects", l: "Projects" },
   { k: "systems", l: "Systems" },
   { k: "jobs", l: "Jobs" },
   { k: "billing", l: "Billing" },
