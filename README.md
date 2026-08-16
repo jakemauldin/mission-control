@@ -1,4 +1,48 @@
-# React + Vite
+# Rising Creek Mission Control
+
+React + Vite UI (`src/`) with an Express API (`server/api.js`). On the VPS it runs as a
+**host process** started by `~/services/start.sh`: `npm run dev` → `concurrently` →
+vite dev server on **:5173** + `node --watch server/api.js` on **:3080** (vite proxies
+`/api` and `/ws` to it). Reachable on the tailnet via Tailscale Serve `:8080 → localhost:5173`.
+Canonical port map: `~/services/INFRASTRUCTURE.md`.
+
+## ⚠️ Already running? Check before you `npm run dev`
+
+The dashboard is **already up** on the VPS. Do **not** start another copy to see a change —
+vite hot-reloads edits under `src/` and `node --watch` restarts the API on edits under
+`server/`. Check first:
+
+```bash
+ss -tlnp | grep -E ':(5173|3080)\b'      # who holds the UI and API ports
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5173/
+tail -20 /tmp/dashboard.log               # start.sh's log for the running instance
+```
+
+**Why this matters (2026-08-16):** for ~40 days every `start.sh` run (nightly ×2 from
+`update-openclaw.sh`, plus every bridge restart) and every session that ran `npm run dev`
+started *another* instance. vite silently moved to the next free port (5174, 5175, … 5220),
+`node --watch` sat idle on `EADDRINUSE :3080`, and nothing reaped them: **48 vite listeners
++ 50 orphaned `npm run dev` trees, ~1.8 GB RSS**. Guards now in place:
+
+- `start.sh` skips the start when something already listens on :5173 (idempotent).
+- `vite --strictPort` (+ `server.strictPort` in `vite.config.js`): a second instance
+  **exits with an error** instead of squatting a new port.
+- `concurrently --kill-others-on-fail`: when vite refuses to start, the API watcher is
+  torn down too, so a failed second start leaves **no** processes behind.
+
+Need a genuinely separate UI instance (rare)? `npm run dev:client -- --port 5180` — it
+still proxies `/api` to the running API on :3080 — and kill it when you're done.
+
+To restart the real one: find the tree with `ss -tlnp | grep 5173`, `kill <pid>` the
+`npm run dev` root (or the vite + api PIDs), then `cd ~/Dashboard/mission-control && npm run dev > /tmp/dashboard.log 2>&1 &`
+(never `pkill -f` — it matches your own shell).
+
+**Open question (see `~/services/TODO.md`):** production should probably be `npm run build`
++ Express serving `dist/` on one port, not a dev server with HMR and file watchers running 24/7.
+
+---
+
+# React + Vite (template notes)
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
