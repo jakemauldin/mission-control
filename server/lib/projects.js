@@ -63,11 +63,21 @@ function datesIn(s) {
   return out.sort().pop() || null;
 }
 
+// A "## " heading counts as DONE if it says so right up front — "🟢 DONE …" —
+// regardless of what its emoji would otherwise map to. Anchored to the start
+// (after stripping the emoji) so it doesn't fire on headings that merely
+// mention "done" mid-sentence (e.g. "masters DONE (2026-07-03)").
+function classifyStatus(emoji, title) {
+  const stripped = title.replace(/^[^\w]+/, "");
+  if (/^DONE\b/i.test(stripped)) return "done";
+  return emoji ? EMOJI_STATUS[emoji] : "note";
+}
+
 export function parseInflight() {
   let text = "";
   try { text = readFileSync(INFLIGHT, "utf-8"); } catch { return { headings: [], plate: null }; }
   const lines = text.split("\n");
-  const headings = [];
+  const rawHeadings = [];
   let cur = null;
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
@@ -77,11 +87,22 @@ export function parseInflight() {
       const emoji = Object.keys(EMOJI_STATUS).find((e) => title.startsWith(e)) || null;
       cur = {
         id: slugify(title.replace(/^[^\w]+/, "").split(" — ")[0]),
-        title, emoji, status: emoji ? EMOJI_STATUS[emoji] : "note",
+        title, emoji, status: classifyStatus(emoji, title),
         date: datesIn(title), line: i + 1, body: [],
       };
-      headings.push(cur);
+      rawHeadings.push(cur);
     } else if (cur && cur.body.length < 400) cur.body.push(l);
+  }
+  // IN-FLIGHT.md repeats headings verbatim across sessions (same title logged
+  // more than once). Dedupe by id, keeping the occurrence nearest the top of
+  // the file — it's written roughly newest-first, so first-seen (smallest
+  // line number, since we're walking top to bottom) wins.
+  const seenIds = new Set();
+  const headings = [];
+  for (const h of rawHeadings) {
+    if (seenIds.has(h.id)) continue;
+    seenIds.add(h.id);
+    headings.push(h);
   }
   // Jake's plate table (## 🔴 JAKE'S PLATE …): rows | # | **item** | status |
   const plateH = headings.find((h) => /JAKE'S PLATE/i.test(h.title));
@@ -101,6 +122,20 @@ export function parseInflight() {
   return { headings, plate };
 }
 
+// IN-FLIGHT.md is a rolling changelog — most `## ` headings are one-off status
+// notes (version bumps, campaign builds, ops recaps), not projects with their
+// own running to-do list. Only import a heading as an auto project card when
+// it both (a) carries a real status emoji and (b) names an actual JobTread
+// job — Jake's own convention is "(JT #NNN)" or "(#NNN)" in the title,
+// occasionally "Job NNN". Everything else stays visible in IN-FLIGHT.md (that
+// file is untouched) but doesn't spawn a card, so ~83 changelog headings stop
+// drowning the handful of real jobs on the Projects tab.
+const PROJECT_EMOJI = new Set(["🔴", "🟡", "🟢", "✅"]);
+const JOB_REF_RE = /\(\s*(?:JT\s*)?#\d+\s*\)|\bJob\s+\d{2,4}\b/i;
+function looksLikeProject(h) {
+  return !!h.emoji && PROJECT_EMOJI.has(h.emoji) && JOB_REF_RE.test(h.title);
+}
+
 // ── merged view ──────────────────────────────────────────────────────────────
 export function getProjects() {
   const store = loadStore();
@@ -110,6 +145,7 @@ export function getProjects() {
 
   // manual projects first (they carry the to-dos), enriched with any IN-FLIGHT heading match
   for (const p of store.projects) {
+    if (plate && p.id === plate.id) continue; // folded into the unshifted plate card below, not a separate card
     const h = headings.find((x) => x.id === p.id || (p.inflightMatch && x.title.includes(p.inflightMatch)));
     projects.push({
       ...p, source: "manual",
@@ -117,10 +153,14 @@ export function getProjects() {
       lastTouched: p.lastTouched || h?.date || null,
     });
   }
-  // auto projects from IN-FLIGHT headings that have no manual counterpart
+  // auto projects from IN-FLIGHT headings that have no manual counterpart and
+  // look like a real project (see looksLikeProject above)
+  let autoCount = 0;
   for (const h of headings) {
     if (bySlug.has(h.id)) continue;
     if (plate && h.id === plate.id) continue;
+    if (!looksLikeProject(h)) continue;
+    autoCount++;
     projects.push({
       id: h.id, name: h.title.replace(/^[^\w]+/, "").split(" — ")[0].slice(0, 90),
       status: h.status, source: "inflight", todos: [], progressNote: null,
@@ -144,7 +184,7 @@ export function getProjects() {
   // sort: active work first, then by lastTouched desc
   const rank = { active: 0, partial: 1, waiting: 2, blocked: 3, note: 4, info: 5, done: 6, paused: 7 };
   projects.sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9) || String(b.lastTouched || "").localeCompare(String(a.lastTouched || "")));
-  return { updated: store.updated, projects, counts: { total: projects.length, manual: store.projects.length, inflight: headings.length } };
+  return { updated: store.updated, projects, counts: { total: projects.length, manual: store.projects.length, inflight: autoCount } };
 }
 
 // ── mutations (all touch lastTouched) ────────────────────────────────────────

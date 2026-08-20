@@ -81,7 +81,7 @@ export default function ProjectsView() {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 10 }}>
-        {visible.map((p) => <ProjectCard key={`${p.id}:${p.progressNote || ""}`} p={p} reload={load} />)}
+        {visible.map((p) => <ProjectCard key={`${p.source}:${p.id}:${p.progressNote || ""}`} p={p} reload={load} />)}
       </div>
       {projects.length > visible.length && (
         <button onClick={() => setShowAll(true)} style={{ ...chip, marginTop: 12 }}>show all {projects.length}</button>
