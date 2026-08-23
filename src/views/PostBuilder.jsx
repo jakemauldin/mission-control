@@ -36,69 +36,123 @@ function lint(text, platform) {
   return warns;
 }
 
+// ── platform-exact rendering primitives ──────────────────────────────────────
+// Fonts are each platform's real stack; icons are inline SVG traced from the
+// platforms' current glyphs; engagement is ZERO-STATE (a fresh post shows no
+// counts) — fabricated numbers would make the preview a lie.
+const FONT = {
+  facebook: "Segoe UI, Helvetica, Arial, sans-serif",
+  instagram: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+  x: "'TwitterChirp', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+  gbp: "'Google Sans', Roboto, Arial, sans-serif",
+  youtube: "Roboto, Arial, sans-serif",
+  linkedin: "-apple-system, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+  pinterest: "-apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif",
+  houzz: "'Helvetica Neue', Helvetica, Arial, sans-serif",
+};
+const I = ({ d, size = 18, color = "currentColor", vb = "0 0 24 24" }) => (
+  <svg width={size} height={size} viewBox={vb} fill="none" style={{ display: "block" }}>
+    <path d={d} fill={color} />
+  </svg>
+);
+const ICON = {
+  fbLike: "M7 10v10H4a1 1 0 01-1-1v-8a1 1 0 011-1h3zm2 10V9.83l4.06-6.09a1.5 1.5 0 012.72 1.13L15 9h5a2 2 0 012 2.4l-1.44 6.77A2.5 2.5 0 0118.11 20H9z",
+  fbComment: "M12 3C6.48 3 2 6.92 2 11.75c0 2.6 1.33 4.93 3.45 6.53L5 21.5l3.8-2.05c1 .26 2.07.4 3.2.4 5.52 0 10-3.92 10-8.75S17.52 3 12 3z",
+  fbShare: "M14 5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1.5-5 3.5-9.9 11-10.9V5z",
+  igHeart: "M16.5 3.5c-1.74 0-3.41.9-4.5 2.34C10.91 4.4 9.24 3.5 7.5 3.5 4.42 3.5 2 5.92 2 9c0 3.78 3.4 6.86 8.55 11.53L12 21.85l1.45-1.32C18.6 15.86 22 12.78 22 9c0-3.08-2.42-5.5-5.5-5.5z",
+  igComment: "M12 2C6.48 2 2 6.02 2 11c0 2.72 1.35 5.15 3.47 6.8L4.5 22l4.42-2.32c.98.21 2.01.32 3.08.32 5.52 0 10-4.02 10-9S17.52 2 12 2z",
+  igSend: "M22 3L2 10.53l7.08 2.4L11.5 20 22 3zM9.5 13.3L19 5.5l-8.4 9.1-.1 3.2-1-4.5z",
+  igSave: "M6 3h12a1 1 0 011 1v17l-7-5-7 5V4a1 1 0 011-1z",
+  xReply: "M9 17l-5-5 5-5v3.5c5.5 0 9 2 11 6.5-2.5-2.5-5.5-3.5-11-3.5V17z",
+  xRT: "M7 7h7a3 3 0 013 3v1h-2l3 4 3-4h-2v-1a5 5 0 00-5-5H7v2zm10 10h-7a3 3 0 01-3-3v-1h2L6 9l-3 4h2v1a5 5 0 005 5h7v-2z",
+  xLike: "M12 21S3 14.5 3 8.8C3 5.6 5.4 3.5 8 3.5c1.7 0 3.2.9 4 2.2.8-1.3 2.3-2.2 4-2.2 2.6 0 5 2.1 5 5.3 0 5.7-9 12.2-9 12.2z",
+  xViews: "M4 20V10h3v10H4zm6.5 0V4h3v16h-3zM17 20v-7h3v7h-3z",
+  liLike: "M7 10v10H4a1 1 0 01-1-1v-8a1 1 0 011-1h3zm2 10V9.83l4.06-6.09a1.5 1.5 0 012.72 1.13L15 9h5a2 2 0 012 2.4l-1.44 6.77A2.5 2.5 0 0118.11 20H9z",
+  liComment: "M7 9h10v1.5H7V9zm0 3h7v1.5H7V12zm14-6.5v13l-4-3.5H5a2 2 0 01-2-2v-7.5a2 2 0 012-2h14a2 2 0 012 2z",
+  liRepost: "M4 10l4-4v3h8a3 3 0 013 3v2h-2v-2a1 1 0 00-1-1H8v3l-4-4zm16 4l-4 4v-3H8a3 3 0 01-3-3v-2h2v2a1 1 0 001 1h8v-3l4 4z",
+  liSend: "M21 3L3 10.5l6.5 2L12 19l2.5-5.5L21 3z",
+};
+// URLs render as links on-platform (except IG, where they are dead text — that IS the accuracy)
+function linkify(text, color, dead) {
+  const parts = String(text).split(/(https?:\/\/[^\s]+)/g);
+  return parts.map((p, i) => /^https?:\/\//.test(p)
+    ? <span key={i} style={dead ? {} : { color }}>{dead ? p : p.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}</span>
+    : <span key={i}>{p}</span>);
+}
+
 function Media({ refs, aspect, single }) {
-  if (!refs.length) return <div style={{ aspectRatio: aspect, background: "#22201533", display: "grid", placeItems: "center", color: C.dim, fontSize: 12 }}>no image attached</div>;
+  if (!refs.length) return <div style={{ aspectRatio: aspect, background: "#e4e6eb", display: "grid", placeItems: "center", color: "#8a8d91", fontSize: 12 }}>no image attached</div>;
   const img = (r, st) => <img key={r} src={`/api/media/thumb?rel=${encodeURIComponent(r)}`} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", ...st }} />;
   if (single || refs.length === 1) return <div style={{ aspectRatio: aspect, overflow: "hidden" }}>{img(refs[0])}</div>;
+  // Facebook's real multi-photo grids (square sources): 2 = two columns;
+  // 3 = one full-width on top, two below; 4+ = 2x2 with +N on the last cell.
   if (refs.length === 2) return <div style={{ aspectRatio: aspect, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>{refs.slice(0, 2).map(r => img(r))}</div>;
-  return (
-    <div style={{ aspectRatio: aspect, display: "grid", gridTemplateColumns: "2fr 1fr", gap: 2 }}>
+  if (refs.length === 3) return (
+    <div style={{ display: "grid", gridTemplateRows: "1.2fr 1fr", gap: 2, aspectRatio: aspect }}>
       {img(refs[0])}
-      <div style={{ display: "grid", gridTemplateRows: "1fr 1fr", gap: 2, position: "relative" }}>
-        {img(refs[1])}
-        <div style={{ position: "relative" }}>
-          {img(refs[2])}
-          {refs.length > 3 && <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.55)", display: "grid", placeItems: "center", color: "#fff", fontSize: 20, fontWeight: 600 }}>+{refs.length - 3}</div>}
-        </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>{img(refs[1])}{img(refs[2])}</div>
+    </div>
+  );
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", gap: 2, aspectRatio: "1/1" }}>
+      {img(refs[0])}{img(refs[1])}{img(refs[2])}
+      <div style={{ position: "relative" }}>
+        {img(refs[3])}
+        {refs.length > 4 && <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.55)", display: "grid", placeItems: "center", color: "#fff", fontSize: 22, fontWeight: 600 }}>+{refs.length - 4}</div>}
       </div>
     </div>
   );
 }
 
-function Caption({ text, trunc, dark }) {
-  const t = text.length > trunc ? text.slice(0, trunc).trimEnd() : text;
-  return <span style={{ whiteSpace: "pre-wrap" }}>{t}{text.length > trunc && <span style={{ color: dark ? "#8899a6" : "#65676b" }}>… See more</span>}</span>;
+function Caption({ text, trunc, more = "See more", moreColor = "#65676b", linkColor = "#216fdb", deadLinks = false }) {
+  const over = text.length > trunc;
+  const t = over ? text.slice(0, trunc).trimEnd() : text;
+  return (
+    <span style={{ whiteSpace: "pre-wrap" }}>
+      {linkify(t, linkColor, deadLinks)}
+      {over && <span style={{ color: moreColor }}>… {more}</span>}
+    </span>
+  );
 }
 
 function LinkCard({ link, aspect, dark }) {
   if (!link) return null;
-  const strip = { padding: "8px 12px", background: dark ? "#16181c" : "#f0f2f5", borderTop: dark ? "1px solid #2f3336" : "1px solid #ddd" };
+  const strip = { padding: "8px 12px", background: dark ? "#16181c" : "#f0f2f5", borderTop: dark ? "1px solid #2f3336" : "1px solid #dddfe2" };
   return (
-    <div style={{ border: dark ? "1px solid #2f3336" : "1px solid #ddd", borderRadius: dark ? 14 : 0, overflow: "hidden" }}>
+    <div style={{ border: dark ? "1px solid #2f3336" : "1px solid #dddfe2", borderRadius: dark ? 16 : 0, overflow: "hidden" }}>
       {link.image
         ? <img src={link.image} alt="" style={{ width: "100%", aspectRatio: aspect, objectFit: "cover", display: "block" }} />
         : <div style={{ aspectRatio: aspect, background: dark ? "#202327" : "#e4e6eb", display: "grid", placeItems: "center" }}>
             <img src={link.icon} alt="" style={{ width: 48, height: 48 }} onError={e => { e.target.style.display = "none"; }} /></div>}
       <div style={strip}>
-        <div style={{ fontSize: 11, color: dark ? "#71767b" : "#65676b", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 5 }}>
+        <div style={{ fontSize: 12, color: dark ? "#71767b" : "#65676b", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 5, letterSpacing: .2 }}>
           <img src={link.icon} alt="" style={{ width: 14, height: 14, borderRadius: 3 }} onError={e => { e.target.style.display = "none"; }} />
           {link.domain}
         </div>
-        <div style={{ fontSize: 14, fontWeight: 600, color: dark ? "#e7e9ea" : "#050505", lineHeight: 1.25, marginTop: 2 }}>{link.title}</div>
-        {link.description && <div style={{ fontSize: 12, color: dark ? "#71767b" : "#65676b", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{link.description}</div>}
+        <div style={{ fontSize: 15, fontWeight: 600, color: dark ? "#e7e9ea" : "#050505", lineHeight: 1.25, marginTop: 2 }}>{link.title}</div>
+        {link.description && <div style={{ fontSize: 13, color: dark ? "#71767b" : "#606770", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{link.description}</div>}
       </div>
     </div>
   );
 }
 
-// 9:16 fullscreen story/reel frame — the Meta preview's phone look
 function StoryFrame({ caption, refs, cta, reel, handle }) {
   const bg = refs[0] ? `url(/api/media/thumb?rel=${encodeURIComponent(refs[0])})` : "linear-gradient(#3a3a2a,#111)";
   return (
-    <div style={{ width: 250, aspectRatio: "9/16", borderRadius: 18, overflow: "hidden", position: "relative", background: bg, backgroundSize: "cover", backgroundPosition: "center", border: "1px solid #333", fontFamily: "Helvetica,Arial,sans-serif" }}>
+    <div style={{ width: 250, aspectRatio: "9/16", borderRadius: 18, overflow: "hidden", position: "relative", background: bg, backgroundSize: "cover", backgroundPosition: "center", border: "1px solid #333", fontFamily: FONT.instagram }}>
       <div style={{ position: "absolute", inset: 0, background: "linear-gradient(rgba(0,0,0,.45), transparent 25%, transparent 60%, rgba(0,0,0,.6))" }} />
       <div style={{ position: "absolute", top: 10, left: 10, right: 10, display: "flex", alignItems: "center", gap: 7 }}>
-        {!reel && <div style={{ position: "absolute", top: -4, left: 0, right: 0, height: 2, background: "rgba(255,255,255,.35)" }}><div style={{ width: "35%", height: "100%", background: "#fff" }} /></div>}
+        {!reel && <div style={{ position: "absolute", top: -4, left: 0, right: 0, height: 2, background: "rgba(255,255,255,.35)", borderRadius: 1 }}><div style={{ width: "35%", height: "100%", background: "#fff", borderRadius: 1 }} /></div>}
         <img src={AVATAR} alt="" style={{ width: 30, height: 30, borderRadius: "50%", border: "1px solid rgba(255,255,255,.6)" }} />
-        <span style={{ color: "#fff", fontSize: 12, fontWeight: 600, textShadow: "0 1px 2px rgba(0,0,0,.6)" }}>{handle}</span>
-        <span style={{ color: "rgba(255,255,255,.7)", fontSize: 11 }}>Ad</span>
+        <span style={{ color: "#fff", fontSize: 13, fontWeight: 600, textShadow: "0 1px 2px rgba(0,0,0,.6)" }}>{handle}</span>
+        <span style={{ color: "rgba(255,255,255,.75)", fontSize: 11 }}>Sponsored</span>
       </div>
       {reel && (
-        <div style={{ position: "absolute", right: 8, bottom: 70, display: "flex", flexDirection: "column", gap: 14, color: "#fff", fontSize: 20, textAlign: "center", textShadow: "0 1px 3px rgba(0,0,0,.7)" }}>
-          <span>♡</span><span>💬</span><span>➤</span><span>⋯</span>
+        <div style={{ position: "absolute", right: 8, bottom: 70, display: "flex", flexDirection: "column", gap: 16, alignItems: "center", color: "#fff", filter: "drop-shadow(0 1px 2px rgba(0,0,0,.7))" }}>
+          <I d={ICON.igHeart} size={26} color="#fff" /><I d={ICON.igComment} size={26} color="#fff" /><I d={ICON.igSend} size={26} color="#fff" />
         </div>
       )}
-      <div style={{ position: "absolute", left: 10, right: reel ? 44 : 10, bottom: 44, color: "#fff", fontSize: 12, lineHeight: 1.4, textShadow: "0 1px 3px rgba(0,0,0,.8)", maxHeight: 84, overflow: "hidden" }}>
+      <div style={{ position: "absolute", left: 10, right: reel ? 48 : 10, bottom: 46, color: "#fff", fontSize: 12.5, lineHeight: 1.4, textShadow: "0 1px 3px rgba(0,0,0,.8)", maxHeight: 84, overflow: "hidden" }}>
         {caption.slice(0, 140)}{caption.length > 140 ? "…" : ""}
       </div>
       <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 10, background: "#fff", color: "#050505", borderRadius: 20, padding: "7px 18px", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>{cta}</div>
@@ -108,32 +162,43 @@ function StoryFrame({ caption, refs, cta, reel, handle }) {
 
 function Preview({ platform, placement, caption, refs, link }) {
   const P = PLATFORMS[platform];
-  const light = { background: "#fff", color: "#050505", borderRadius: 10, overflow: "hidden", maxWidth: 420, fontFamily: "Helvetica,Arial,sans-serif", border: "1px solid #d9d9d9" };
-  const head = (name, sub, round = true) => (
-    <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 12px" }}>
-      <img src={AVATAR} alt="" style={{ width: 38, height: 38, borderRadius: round ? "50%" : 8 }} />
-      <div><div style={{ fontWeight: 600, fontSize: 14 }}>{name}</div><div style={{ fontSize: 12, color: "#65676b" }}>{sub}</div></div>
+  const ff = FONT[platform];
+  const light = { background: "#fff", color: "#050505", borderRadius: 8, overflow: "hidden", maxWidth: 420, fontFamily: ff, border: "1px solid #dddfe2", boxShadow: "0 1px 2px rgba(0,0,0,.1)" };
+  const head = (name, sub, round = true, verified = false) => (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "12px 12px 8px" }}>
+      <img src={AVATAR} alt="" style={{ width: 40, height: 40, borderRadius: round ? "50%" : 6 }} />
+      <div style={{ lineHeight: 1.25 }}>
+        <div style={{ fontWeight: 600, fontSize: 14.5, display: "flex", alignItems: "center", gap: 4 }}>
+          {name}{verified && <span style={{ color: "#1877f2", fontSize: 13 }}>✔</span>}
+        </div>
+        <div style={{ fontSize: 12.5, color: "#65676b" }}>{sub}</div>
+      </div>
+      <span style={{ marginLeft: "auto", color: "#65676b", fontWeight: 700, letterSpacing: 1 }}>⋯</span>
     </div>
   );
-  const bar = (items, color = "#65676b") => (
-    <div style={{ display: "flex", justifyContent: "space-around", padding: "8px 0", borderTop: "1px solid #eee", color, fontSize: 13 }}>
-      {items.map(i => <span key={i}>{i}</span>)}
+  const actionBar = (items, color) => (
+    <div style={{ display: "flex", borderTop: "1px solid #e4e6eb", margin: "0 12px", padding: "4px 0" }}>
+      {items.map(([icon, label]) => (
+        <span key={label} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 0", color, fontSize: 14, fontWeight: 600 }}>
+          <I d={icon} size={18} color={color} />{label}
+        </span>
+      ))}
     </div>
   );
 
   if (platform === "facebook") {
     if (placement === "Story") return <StoryFrame caption={caption} refs={refs} cta="Send message" handle={NAME} />;
     if (placement === "In-stream") return (
-      <div style={{ ...light, background: "#000", border: "1px solid #333", maxWidth: 420 }}>
+      <div style={{ background: "#000", borderRadius: 8, overflow: "hidden", maxWidth: 420, fontFamily: ff, border: "1px solid #333" }}>
         <div style={{ aspectRatio: "16/9", position: "relative" }}>
           <Media refs={refs} aspect="16/9" single />
-          <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "rgba(0,0,0,.75)", padding: "8px 12px", display: "flex", gap: 8, alignItems: "center" }}>
-            <img src={AVATAR} alt="" style={{ width: 26, height: 26, borderRadius: "50%" }} />
+          <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "rgba(0,0,0,.78)", padding: "8px 12px", display: "flex", gap: 8, alignItems: "center" }}>
+            <img src={AVATAR} alt="" style={{ width: 28, height: 28, borderRadius: "50%" }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ color: "#fff", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{NAME} · Sponsored</div>
-              <div style={{ color: "#b0b3b8", fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{caption.slice(0, 60)}</div>
+              <div style={{ color: "#fff", fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{NAME}</div>
+              <div style={{ color: "#b0b3b8", fontSize: 11 }}>Sponsored</div>
             </div>
-            <span style={{ background: "#fff", borderRadius: 6, padding: "5px 10px", fontSize: 12, fontWeight: 600 }}>Send message</span>
+            <span style={{ background: "#fff", borderRadius: 6, padding: "6px 12px", fontSize: 13, fontWeight: 600 }}>Send message</span>
           </div>
         </div>
       </div>
@@ -141,10 +206,12 @@ function Preview({ platform, placement, caption, refs, link }) {
     const mobile = placement === "Mobile feed";
     return (
       <div style={{ ...light, maxWidth: mobile ? 340 : 420 }}>
-        {head(NAME, "Just now · 🌐")}
-        <div style={{ padding: "0 12px 10px", fontSize: 14, lineHeight: 1.35 }}><Caption text={caption} trunc={P.trunc} /></div>
+        {head(NAME, "Just now · 🌐", true, true)}
+        <div style={{ padding: "0 12px 10px", fontSize: 15, lineHeight: 1.33 }}>
+          <Caption text={caption} trunc={mobile ? 200 : P.trunc} more="See more" linkColor="#216fdb" />
+        </div>
         {refs.length === 0 && link ? <LinkCard link={link} aspect="1.91/1" /> : <Media refs={refs} aspect={mobile ? "1/1" : "1.91/1"} />}
-        {bar(["👍 Like", "💬 Comment", "↗ Share"])}
+        {actionBar([[ICON.fbLike, "Like"], [ICON.fbComment, "Comment"], [ICON.fbShare, "Share"]], "#65676b")}
       </div>
     );
   }
@@ -153,33 +220,56 @@ function Preview({ platform, placement, caption, refs, link }) {
     if (placement === "Story") return <StoryFrame caption={caption} refs={refs} cta="Learn more" handle={P.handle} />;
     if (placement === "Reel") return <StoryFrame caption={caption} refs={refs} cta="Send message" handle={P.handle} reel />;
     return (
-      <div style={{ ...light, maxWidth: 380 }}>
-        {head(P.handle, "Original")}
+      <div style={{ ...light, maxWidth: 380, borderRadius: 4, border: "1px solid #dbdbdb", boxShadow: "none" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 12px" }}>
+          <img src={AVATAR} alt="" style={{ width: 32, height: 32, borderRadius: "50%", outline: "2px solid #fff", boxShadow: "0 0 0 3.5px #d62976" }} />
+          <span style={{ fontWeight: 600, fontSize: 13.5 }}>{P.handle}</span>
+          <span style={{ marginLeft: "auto", fontWeight: 700, letterSpacing: 1, color: "#262626" }}>⋯</span>
+        </div>
         <Media refs={refs} aspect="1/1" single />
-        {refs.length > 1 && <div style={{ textAlign: "center", fontSize: 10, color: "#0095f6", padding: 4 }}>{refs.map((_, i) => i === 0 ? "●" : "○").join(" ")}</div>}
-        <div style={{ display: "flex", gap: 14, padding: "10px 12px 4px", fontSize: 20 }}>♡ 💬 ➤ <span style={{ marginLeft: "auto" }}>⌲</span></div>
-        <div style={{ padding: "2px 12px 12px", fontSize: 14 }}><b>{P.handle}</b> <Caption text={caption} trunc={P.trunc} /></div>
+        <div style={{ display: "flex", gap: 14, padding: "10px 12px 6px", alignItems: "center", color: "#262626" }}>
+          <I d={ICON.igHeart} size={24} /><I d={ICON.igComment} size={24} /><I d={ICON.igSend} size={24} />
+          {refs.length > 1 && <span style={{ position: "absolute" }} />}
+          <span style={{ marginLeft: "auto" }}><I d={ICON.igSave} size={24} /></span>
+        </div>
+        {refs.length > 1 && <div style={{ textAlign: "center", fontSize: 8, color: "#0095f6", marginTop: -20, marginBottom: 8 }}>{refs.map((_, i) => i === 0 ? "●" : "○").join(" ")}</div>}
+        <div style={{ padding: "0 12px 14px", fontSize: 14, lineHeight: 1.4 }}>
+          <b>{P.handle}</b>{" "}
+          <Caption text={caption} trunc={P.trunc} more="more" moreColor="#8e8e8e" deadLinks />
+        </div>
       </div>
     );
   }
 
   if (platform === "x") return (
-    <div style={{ ...light, background: "#000", color: "#e7e9ea", border: "1px solid #2f3336" }}>
-      {head(NAME, `${P.handle} · now`)}
-      <div style={{ padding: "0 12px 10px", fontSize: 15, lineHeight: 1.35 }}><Caption text={caption} trunc={280} dark /></div>
-      {refs.length === 0 && link
-        ? <div style={{ margin: "0 12px 10px" }}><LinkCard link={link} aspect="16/9" dark /></div>
-        : <div style={{ margin: "0 12px 10px", borderRadius: 14, overflow: "hidden", border: "1px solid #2f3336" }}><Media refs={refs} aspect="16/9" /></div>}
-      {bar(["💬 12", "🔁 4", "♡ 32", "📊 1.2K"], "#71767b")}
+    <div style={{ background: "#000", color: "#e7e9ea", borderRadius: 16, overflow: "hidden", maxWidth: 420, fontFamily: ff, border: "1px solid #2f3336", padding: "12px 16px" }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        <img src={AVATAR} alt="" style={{ width: 40, height: 40, borderRadius: "50%" }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", gap: 5, alignItems: "baseline", fontSize: 15 }}>
+            <span style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{NAME}</span>
+            <span style={{ color: "#71767b", fontSize: 14 }}>{P.handle} · now</span>
+          </div>
+          <div style={{ fontSize: 15, lineHeight: 1.35, marginTop: 2 }}>
+            <Caption text={caption} trunc={280} more="" linkColor="#1d9bf0" />
+          </div>
+          {refs.length === 0 && link
+            ? <div style={{ marginTop: 10 }}><LinkCard link={link} aspect="16/9" dark /></div>
+            : refs.length > 0 && <div style={{ marginTop: 10, borderRadius: 16, overflow: "hidden", border: "1px solid #2f3336" }}><Media refs={refs} aspect="16/9" /></div>}
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10, maxWidth: 320, color: "#71767b" }}>
+            <I d={ICON.xReply} size={17} color="#71767b" /><I d={ICON.xRT} size={17} color="#71767b" /><I d={ICON.xLike} size={17} color="#71767b" /><I d={ICON.xViews} size={17} color="#71767b" />
+          </div>
+        </div>
+      </div>
     </div>
   );
 
   if (platform === "gbp") return (
-    <div style={light}>
+    <div style={{ ...light, borderRadius: 12, maxWidth: 360 }}>
       <Media refs={refs} aspect="4/3" single />
-      {head(NAME, new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }))}
-      <div style={{ padding: "0 12px 10px", fontSize: 14, lineHeight: 1.4 }}><Caption text={caption} trunc={P.trunc} /></div>
-      <div style={{ padding: "0 12px 12px", display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ padding: "12px 16px 4px", fontSize: 12, color: "#5f6368" }}>{NAME} · {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
+      <div style={{ padding: "0 16px 10px", fontSize: 14, lineHeight: 1.45, color: "#3c4043" }}><Caption text={caption} trunc={P.trunc} linkColor="#1a73e8" /></div>
+      <div style={{ padding: "0 16px 14px", display: "flex", alignItems: "center", gap: 6 }}>
         <span style={{ color: "#1a73e8", fontSize: 14, fontWeight: 500 }}>Learn more</span>
         {link && <span style={{ fontSize: 11, color: "#5f6368" }}>→ {link.domain}</span>}
       </div>
@@ -187,11 +277,13 @@ function Preview({ platform, placement, caption, refs, link }) {
   );
 
   if (platform === "pinterest") return (
-    <div style={{ ...light, maxWidth: 260, borderRadius: 18 }}>
-      <div style={{ borderRadius: "18px 18px 0 0", overflow: "hidden" }}><Media refs={refs} aspect="2/3" single /></div>
-      <div style={{ padding: "10px 12px", fontSize: 14, fontWeight: 600 }}><Caption text={caption.split("\n")[0]} trunc={P.trunc} /></div>
-      <div style={{ padding: "0 12px 12px", fontSize: 12, color: "#5f5f5f", display: "flex", gap: 6, alignItems: "center" }}>
-        <img src={AVATAR} alt="" style={{ width: 22, height: 22, borderRadius: "50%" }} /> {NAME}
+    <div style={{ maxWidth: 236, fontFamily: ff }}>
+      <div style={{ borderRadius: 16, overflow: "hidden" }}><Media refs={refs} aspect="2/3" single /></div>
+      <div style={{ padding: "8px 4px 2px", fontSize: 14, fontWeight: 600, color: C.bright, lineHeight: 1.3 }}>
+        {caption.split("\n")[0].slice(0, P.trunc) || "Pin title (first caption line)"}
+      </div>
+      <div style={{ padding: "0 4px", fontSize: 12, color: C.dim, display: "flex", gap: 6, alignItems: "center" }}>
+        <img src={AVATAR} alt="" style={{ width: 24, height: 24, borderRadius: "50%" }} /> {NAME}
         {link && <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
           <img src={link.icon} alt="" style={{ width: 12, height: 12 }} onError={e => { e.target.style.display = "none"; }} />{link.domain}</span>}
       </div>
@@ -201,45 +293,61 @@ function Preview({ platform, placement, caption, refs, link }) {
   if (platform === "youtube") {
     const [title, ...rest] = caption.split("\n");
     return (
-      <div style={{ maxWidth: 380, fontFamily: "Roboto,Arial,sans-serif" }}>
+      <div style={{ maxWidth: 380, fontFamily: ff }}>
         <div style={{ borderRadius: 12, overflow: "hidden", position: "relative" }}>
           <Media refs={refs} aspect="16/9" single />
-          <span style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,.8)", color: "#fff", fontSize: 11, padding: "1px 5px", borderRadius: 4 }}>0:46</span>
         </div>
         <div style={{ display: "flex", gap: 10, paddingTop: 10 }}>
           <img src={AVATAR} alt="" style={{ width: 36, height: 36, borderRadius: "50%" }} />
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: C.bright, lineHeight: 1.3 }}>{title.slice(0, 100) || "Video title (first caption line)"}</div>
-            <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>{NAME} · 1.2K views · 1 hour ago</div>
-            {rest.length > 0 && <div style={{ fontSize: 12, color: C.dim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 300 }}>{rest.join(" ").slice(0, 90)}</div>}
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 14.5, fontWeight: 500, color: C.bright, lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{title.slice(0, 100) || "Video title (first caption line)"}</div>
+            <div style={{ fontSize: 12.5, color: C.dim, marginTop: 3 }}>{NAME}</div>
+            <div style={{ fontSize: 12.5, color: C.dim }}>No views · just now</div>
           </div>
         </div>
+        {rest.length > 0 && <div style={{ fontSize: 12, color: C.dim, marginTop: 6, paddingLeft: 46, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rest.join(" ").slice(0, 90)}</div>}
       </div>
     );
   }
 
   if (platform === "houzz") return (
-    <div style={{ ...light, maxWidth: 340 }}>
+    <div style={{ ...light, maxWidth: 340, borderRadius: 6 }}>
       <Media refs={refs} aspect="4/3" single />
       <div style={{ padding: "10px 12px 4px", display: "flex", alignItems: "center", gap: 8 }}>
-        <img src={AVATAR} alt="" style={{ width: 32, height: 32, borderRadius: 6 }} />
-        <div>
-          <div style={{ fontWeight: 600, fontSize: 13 }}>{NAME}</div>
-          <div style={{ fontSize: 11, color: "#5f5f5f" }}>★★★★★ 12 Reviews · <span style={{ color: "#2e7d32" }}>PRO</span></div>
+        <img src={AVATAR} alt="" style={{ width: 34, height: 34, borderRadius: 4 }} />
+        <div style={{ lineHeight: 1.3 }}>
+          <div style={{ fontWeight: 600, fontSize: 13.5, color: "#222" }}>{NAME}</div>
+          <div style={{ fontSize: 11.5, color: "#767676" }}>Springtown, TX · <span style={{ color: "#4caf50", fontWeight: 600 }}>PRO</span></div>
         </div>
-        <span style={{ marginLeft: "auto", border: "1px solid #2e7d32", color: "#2e7d32", borderRadius: 4, padding: "3px 10px", fontSize: 12, fontWeight: 600 }}>Save</span>
+        <span style={{ marginLeft: "auto", border: "1.5px solid #222", color: "#222", borderRadius: 20, padding: "4px 14px", fontSize: 12.5, fontWeight: 600 }}>Save</span>
       </div>
-      <div style={{ padding: "4px 12px 12px", fontSize: 13, lineHeight: 1.4, color: "#333" }}><Caption text={caption} trunc={P.trunc} /></div>
+      <div style={{ padding: "6px 12px 14px", fontSize: 13.5, lineHeight: 1.45, color: "#222" }}><Caption text={caption} trunc={P.trunc} linkColor="#166f9c" /></div>
     </div>
   );
 
   // linkedin
   return (
-    <div style={light}>
-      {head(NAME, "Commercial construction · Now", false)}
-      <div style={{ padding: "0 12px 10px", fontSize: 14, lineHeight: 1.4 }}><Caption text={caption} trunc={P.trunc} /></div>
+    <div style={{ ...light, borderRadius: 8 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "12px 12px 8px" }}>
+        <img src={AVATAR} alt="" style={{ width: 48, height: 48, borderRadius: "50%" }} />
+        <div style={{ lineHeight: 1.3 }}>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>{NAME}</div>
+          <div style={{ fontSize: 12, color: "#666" }}>Commercial construction · Springtown, TX</div>
+          <div style={{ fontSize: 12, color: "#666" }}>Just now · 🌐</div>
+        </div>
+        <span style={{ marginLeft: "auto", color: "#666", fontWeight: 700, letterSpacing: 1 }}>⋯</span>
+      </div>
+      <div style={{ padding: "0 12px 10px", fontSize: 14, lineHeight: 1.43 }}>
+        <Caption text={caption} trunc={P.trunc} more="see more" moreColor="#666" linkColor="#0a66c2" />
+      </div>
       {refs.length === 0 && link ? <LinkCard link={link} aspect="1.91/1" /> : <Media refs={refs} aspect="1.91/1" />}
-      {bar(["👍 Like", "💬 Comment", "🔁 Repost", "➤ Send"])}
+      <div style={{ display: "flex", borderTop: "1px solid #e8e8e8", margin: "0 8px", padding: "2px 0" }}>
+        {[[ICON.liLike, "Like"], [ICON.liComment, "Comment"], [ICON.liRepost, "Repost"], [ICON.liSend, "Send"]].map(([ic, l]) => (
+          <span key={l} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "10px 0", color: "#666", fontSize: 13.5, fontWeight: 600 }}>
+            <I d={ic} size={16} color="#666" />{l}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
