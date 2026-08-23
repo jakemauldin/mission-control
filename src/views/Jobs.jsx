@@ -1,9 +1,16 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { C, inn } from "../lib/colors";
+import { C, BRAND, inn } from "../lib/colors";
 import { Section } from "../components/ui/Card";
 import { Row } from "../components/ui/Row";
 
 export default function JobsView({ jobs, live, loading }) {
+  // Closed jobs are noise, not signal (Jake, 8/23). Open by default; closed
+  // behind a toggle — they still exist for closeout/retainage lookups.
+  const [showClosed, setShowClosed] = useState(false);
+  const open = (jobs || []).filter(j => !j.closedOn);
+  const closed = (jobs || []).filter(j => j.closedOn);
+  const shown = showClosed ? [...open, ...closed] : open;
   return (
     <Section title="Jobs — JobTread">
       <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
@@ -12,13 +19,19 @@ export default function JobsView({ jobs, live, loading }) {
           background: live ? "#2A9D8F" : "#64748B",
         }} />
         <span style={{ fontSize: 10, color: C.dim }}>
-          {loading ? "Loading from JobTread..." : live ? `Live from JobTread — ${jobs?.length || 0} jobs` : "Not connected — check JOBTREAD_GRANT_KEY"}
+          {loading ? "Loading from JobTread..." : live ? `Live from JobTread — ${open.length} open` : "Not connected — check JOBTREAD_GRANT_KEY"}
         </span>
+        {closed.length > 0 && (
+          <button onClick={() => setShowClosed(v => !v)}
+            style={{ marginLeft: "auto", background: "none", border: `1px solid ${C.border}`, color: showClosed ? BRAND.focus : C.dim, borderRadius: 6, fontSize: 11, padding: "3px 10px", cursor: "pointer" }}>
+            {showClosed ? "hide" : "show"} {closed.length} closed
+          </button>
+        )}
       </div>
 
-      {jobs && jobs.length > 0 ? (
+      {shown.length > 0 ? (
         <Row>
-          {jobs.map((j) => (
+          {shown.map((j) => (
             <Link key={j.id} to={`/jobs/${j.id}`} style={{ ...inn, display: "block", textDecoration: "none", color: "inherit", cursor: "pointer" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
