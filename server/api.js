@@ -9,6 +9,7 @@ import { listRfiJobs, getRfi, mediaCounts, updateRfiItem, recentMedia, thumbPath
 import { systemsOutcomes } from "./lib/systems.js";
 import { createGenRequest, listGenRequests } from "./lib/gen.js";
 import { createPost, listPosts } from "./lib/posts.js";
+import { suggestPosts, recordSuggestionFeedback } from "./lib/suggest.js";
 import chokidar from "chokidar";
 import { homedir } from "os";
 import { execDocker, execDockerJSON } from "./lib/docker.js";
@@ -426,6 +427,17 @@ app.get("/api/media/recent", (req, res) => {
 app.get("/api/media/thumb", (req, res) => {
   const p = thumbPathFor(req.query.rel || "");
   res.sendFile(p, (err) => { if (err) res.status(404).end(); });
+});
+
+// AI suggestions — one metered sonnet call per click (~1-2¢), learning from the
+// suggestions log + Jake's queued posts. 30s timeout so a slow call can't hang the UI.
+app.post("/api/media/suggest", async (_req, res) => {
+  try { res.json({ ok: true, data: await suggestPosts() }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post("/api/media/suggest/feedback", (req, res) => {
+  try { res.json({ ok: true, data: recordSuggestionFeedback(req.body || {}) }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 app.post("/api/media/posts", (req, res) => {

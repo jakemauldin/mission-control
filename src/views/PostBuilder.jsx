@@ -136,6 +136,9 @@ export default function PostBuilder() {
   const [recent, setRecent] = useState([]);
   const [refs, setRefs] = useState([]);
   const [queued, setQueued] = useState(null);
+  const [ideas, setIdeas] = useState(null);        // null = never asked, [] = loading
+  const [sugId, setSugId] = useState(null);
+  const [usedIdea, setUsedIdea] = useState(null);  // {angle} for the queue-time feedback loop
 
   useEffect(() => { fetch("/api/media/recent?bucket=postable&n=36").then(r => r.json()).then(d => setRecent(d.data || [])).catch(() => {}); }, []);
 
@@ -144,11 +147,40 @@ export default function PostBuilder() {
   const warns = lint(text, tab);
   const activePlatforms = Object.keys(on).filter(k => on[k]);
 
+  const suggest = async () => {
+    setIdeas([]);
+    try {
+      const r = await fetch("/api/media/suggest", { method: "POST" });
+      const d = await r.json();
+      if (d.ok) { setIdeas(d.data.ideas); setSugId(d.data.id); }
+      else setIdeas(null);
+    } catch { setIdeas(null); }
+  };
+
+  const useIdea = (idea) => {
+    setCaption(idea.caption);
+    setRefs(idea.photos.map(p => p.file));
+    setOn(o => Object.fromEntries(Object.keys(o).map(k => [k, idea.platforms.includes(k)])));
+    setUsedIdea({ angle: idea.angle });
+    // feedback: this one used, the siblings ignored — the learning signal
+    fetch("/api/media/suggest/feedback", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ suggestionId: sugId, angle: idea.angle, action: "used" }) });
+    (ideas || []).filter(i => i.index !== idea.index).forEach(i =>
+      fetch("/api/media/suggest/feedback", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ suggestionId: sugId, angle: i.angle, action: "ignored" }) }));
+    setIdeas(null);
+  };
+
   const queue = async () => {
     const r = await fetch("/api/media/posts", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ caption, overrides, platforms: activePlatforms, refs }) });
     const d = await r.json();
-    if (d.ok) setQueued(d.data.id);
+    if (d.ok) {
+      setQueued(d.data.id);
+      // close the loop: the FINAL caption (Jake's edits included) is the strongest signal
+      if (usedIdea) fetch("/api/media/suggest/feedback", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ suggestionId: sugId, angle: usedIdea.angle, action: "queued", finalCaption: caption }) });
+    }
   };
 
   const inp = { padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 13, width: "100%", boxSizing: "border-box" };
@@ -161,6 +193,31 @@ export default function PostBuilder() {
       <div style={{ display: "grid", gridTemplateColumns: "minmax(300px,1fr) minmax(300px,460px)", gap: 16, alignItems: "start" }}>
         {/* ── compose ── */}
         <Section title="Compose">
+          <div style={{ marginBottom: 12 }}>
+            <button onClick={suggest} disabled={ideas && ideas.length === 0}
+              style={{ padding: "8px 14px", background: "none", border: `1px solid ${BRAND.border}`, color: BRAND.focus, borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+              {ideas && ideas.length === 0 ? "Thinking…" : "✨ Suggest 3 ideas"}
+            </button>
+            <span style={{ fontSize: 11, color: C.dim, marginLeft: 8 }}>AI picks captions AND photos from your graded library — or build it manually below.</span>
+          </div>
+          {ideas && ideas.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+              {ideas.map(i => (
+                <div key={i.index} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, background: C.bg }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: BRAND.focus, fontWeight: 700, letterSpacing: 0.4 }}>{i.angle.toUpperCase()}</span>
+                    <span style={{ fontSize: 11, color: C.dim }}>{i.platforms.join(" · ")}</span>
+                    <button onClick={() => useIdea(i)} style={{ marginLeft: "auto", padding: "5px 12px", background: BRAND.accent, color: "#0C1017", border: "none", borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>Use this</button>
+                  </div>
+                  <div style={{ fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap", marginBottom: 8 }}>{i.caption}</div>
+                  <div style={{ display: "flex", gap: 5 }}>
+                    {i.photos.map(p => <img key={p.label} src={`/api/media/thumb?rel=${encodeURIComponent(p.file)}`} alt={p.label} title={p.label}
+                      style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 6, border: `1px solid ${C.border}` }} />)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <textarea value={caption} onChange={e => setCaption(e.target.value)} rows={5} placeholder="Caption — shared across platforms unless overridden per tab"
             style={{ ...inp, resize: "vertical", marginBottom: 10 }} />
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
