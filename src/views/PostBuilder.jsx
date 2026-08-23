@@ -12,7 +12,7 @@ const AVATAR = "/logo-64.png";
 const NAME = "Rising Creek Construction";
 
 const PLATFORMS = {
-  facebook:  { label: "Facebook",  trunc: 280, cap: 8000, handle: NAME,
+  facebook:  { label: "Facebook",  trunc: 280, cap: 63206, handle: NAME,
                placements: ["Desktop feed", "Mobile feed", "Story", "In-stream"] },
   instagram: { label: "Instagram", trunc: 125, cap: 2200, handle: "risingcreekconstruction",
                placements: ["Feed", "Story", "Reel"] },
@@ -24,11 +24,19 @@ const PLATFORMS = {
   houzz:     { label: "Houzz",     trunc: 160, cap: 1000, handle: NAME, placements: ["Project"] },
 };
 
+// X counts every URL as 23 chars (t.co), regardless of real length
+function xLen(text) {
+  const urls = text.match(/https?:\/\/[^\s]+/g) || [];
+  return text.replace(/https?:\/\/[^\s]+/g, "").length + urls.length * 23;
+}
+const effLen = (platform, text) => platform === "x" ? xLen(text) : text.length;
+const GBP_CTA = { LEARN_MORE: "Learn more", BOOK: "Book", ORDER: "Order online", BUY: "Buy", SIGN_UP: "Sign up", CALL: "Call now" };
+
 function lint(text, platform) {
   const warns = [];
   if (/\$\s?\d[\d,]*(\s?(?:-|–|to)\s?\$?\d[\d,]*)?/i.test(text)) warns.push("Never put project-size $ figures in public copy (house rule).");
   if (/dirt\s*to\s*done/i.test(text)) warns.push('"Dirt to Done" is a competitor\'s line — use "Built like it\'s ours."');
-  if (platform === "x" && text.length > 280) warns.push(`X hard limit: ${text.length}/280 — this will not post.`);
+  if (platform === "x" && xLen(text) > 280) warns.push(`X hard limit: ${xLen(text)}/280 (links count as 23) — this will not post.`);
   if (platform === "gbp" && /#\w/.test(text)) warns.push("GBP ignores hashtags — they read as clutter there.");
   if (platform === "instagram" && !/#\w/.test(text)) warns.push("Instagram reach benefits from 3-5 tags.");
   if (platform === "instagram" && /https?:\/\//.test(text)) warns.push("Links are NOT clickable in Instagram captions — use link-in-bio.");
@@ -160,7 +168,8 @@ function StoryFrame({ caption, refs, cta, reel, handle }) {
   );
 }
 
-function Preview({ platform, placement, caption, refs, link }) {
+function Preview({ platform, placement, caption, refs, link, extras }) {
+  const gbp = extras?.gbp;
   const P = PLATFORMS[platform];
   const ff = FONT[platform];
   const light = { background: "#fff", color: "#050505", borderRadius: 8, overflow: "hidden", maxWidth: 420, fontFamily: ff, border: "1px solid #dddfe2", boxShadow: "0 1px 2px rgba(0,0,0,.1)" };
@@ -269,9 +278,16 @@ function Preview({ platform, placement, caption, refs, link }) {
       <Media refs={refs} aspect="4/3" single />
       <div style={{ padding: "12px 16px 4px", fontSize: 12, color: "#5f6368" }}>{NAME} · {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
       <div style={{ padding: "0 16px 10px", fontSize: 14, lineHeight: 1.45, color: "#3c4043" }}><Caption text={caption} trunc={P.trunc} linkColor="#1a73e8" /></div>
+      {gbp?.type === "EVENT" && gbp.eventTitle && (
+        <div style={{ padding: "0 16px 6px", fontSize: 14, fontWeight: 600, color: "#202124" }}>{gbp.eventTitle}
+          <span style={{ fontWeight: 400, color: "#5f6368", fontSize: 12 }}> · {gbp.eventStart || "?"}{gbp.eventEnd ? ` – ${gbp.eventEnd}` : ""}</span></div>
+      )}
+      {gbp?.type === "OFFER" && gbp.couponCode && (
+        <div style={{ margin: "0 16px 8px", border: "1px dashed #5f6368", borderRadius: 6, padding: "6px 10px", fontSize: 13, color: "#202124", textAlign: "center" }}>Code: <b>{gbp.couponCode}</b></div>
+      )}
       <div style={{ padding: "0 16px 14px", display: "flex", alignItems: "center", gap: 6 }}>
-        <span style={{ color: "#1a73e8", fontSize: 14, fontWeight: 500 }}>Learn more</span>
-        {link && <span style={{ fontSize: 11, color: "#5f6368" }}>→ {link.domain}</span>}
+        <span style={{ color: "#1a73e8", fontSize: 14, fontWeight: 500 }}>{GBP_CTA[gbp?.cta] || "Learn more"}</span>
+        {(gbp?.ctaUrl || link) && <span style={{ fontSize: 11, color: "#5f6368" }}>→ {gbp?.ctaUrl ? gbp.ctaUrl.replace(/^https?:\/\/(www\.)?/, "").split("/")[0] : link.domain}</span>}
       </div>
     </div>
   );
@@ -284,14 +300,16 @@ function Preview({ platform, placement, caption, refs, link }) {
       </div>
       <div style={{ padding: "0 4px", fontSize: 12, color: C.dim, display: "flex", gap: 6, alignItems: "center" }}>
         <img src={AVATAR} alt="" style={{ width: 24, height: 24, borderRadius: "50%" }} /> {NAME}
-        {link && <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
-          <img src={link.icon} alt="" style={{ width: 12, height: 12 }} onError={e => { e.target.style.display = "none"; }} />{link.domain}</span>}
+        {(extras?.pinterest?.link || link) && <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
+          {link && !extras?.pinterest?.link && <img src={link.icon} alt="" style={{ width: 12, height: 12 }} onError={e => { e.target.style.display = "none"; }} />}
+          {extras?.pinterest?.link ? extras.pinterest.link.replace(/^https?:\/\/(www\.)?/, "").split("/")[0] : link.domain}</span>}
       </div>
     </div>
   );
 
   if (platform === "youtube") {
-    const [title, ...rest] = caption.split("\n");
+    const [firstLine, ...rest] = caption.split("\n");
+    const title = extras?.youtube?.title || firstLine;
     return (
       <div style={{ maxWidth: 380, fontFamily: ff }}>
         <div style={{ borderRadius: 12, overflow: "hidden", position: "relative" }}>
@@ -474,6 +492,10 @@ export default function PostBuilder() {
   const [usedIdea, setUsedIdea] = useState(null);
   // Per-platform photo arrangement (default = shared selection in shared order).
   const [refsByPlatform, setRefsByPlatform] = useState({});
+  const [alts, setAlts] = useState({});           // file -> alt text (shared; it describes the image)
+  const [scheduleAt, setScheduleAt] = useState("");
+  const [extras, setExtras] = useState({ gbp: { type: "UPDATE", cta: "LEARN_MORE", ctaUrl: "", eventTitle: "", eventStart: "", eventEnd: "", couponCode: "" }, pinterest: { board: "", link: "" }, youtube: { title: "" } });
+  const setExtra = (p, k, v) => setExtras(o => ({ ...o, [p]: { ...o[p], [k]: v } }));
   const [unfurls, setUnfurls] = useState({});
 
   useEffect(() => { fetch("/api/media/recent?bucket=postable&n=36").then(r => r.json()).then(d => setRecent(d.data || [])).catch(() => {}); }, []);
@@ -542,8 +564,15 @@ export default function PostBuilder() {
     // BUG 8: only ship overrides/arrangements for platforms actually in the post
     const cleanOv = Object.fromEntries(Object.entries(overrides).filter(([k, v]) => on[k] && v));
     const cleanRbp = Object.fromEntries(Object.entries(refsByPlatform).filter(([k]) => on[k]));
+    const usedRefs = new Set([...refs, ...Object.values(refsByPlatform).flat()]);
+    const cleanAlts = Object.fromEntries(Object.entries(alts).filter(([k, v]) => usedRefs.has(k) && v.trim()));
+    const cleanExtras = {};
+    if (on.gbp) cleanExtras.gbp = extras.gbp;
+    if (on.pinterest) cleanExtras.pinterest = extras.pinterest;
+    if (on.youtube) cleanExtras.youtube = extras.youtube;
     const r = await fetch("/api/media/posts", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ caption, overrides: cleanOv, platforms: activePlatforms, refs, refsByPlatform: cleanRbp }) }).finally(() => setSubmitting(false));
+      body: JSON.stringify({ caption, overrides: cleanOv, platforms: activePlatforms, refs, refsByPlatform: cleanRbp,
+        alts: cleanAlts, scheduleAt: scheduleAt || null, extras: cleanExtras }) }).finally(() => setSubmitting(false));
     const d = await r.json();
     if (d.ok) {
       setQueued(d.data.id);
@@ -552,6 +581,19 @@ export default function PostBuilder() {
   };
 
   const inp = { padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 13, width: "100%", boxSizing: "border-box" };
+
+  // Hard limits BLOCK the queue (roadmap A.8) — a post that cannot publish must not file
+  const queueErrors = [];
+  for (const k of activePlatforms) {
+    const t = overrides[k] || caption;
+    if (effLen(k, t) > PLATFORMS[k].cap) queueErrors.push(`${PLATFORMS[k].label}: ${effLen(k, t)}/${PLATFORMS[k].cap} characters${k === "x" ? " (links = 23)" : ""}`);
+    if (k === "pinterest") {
+      const title = t.split("\n")[0];
+      if (title.length > 100) queueErrors.push(`Pinterest title (first line): ${title.length}/100`);
+      if (!extras.pinterest.board.trim()) queueErrors.push("Pinterest needs a board — a pin cannot exist without one");
+    }
+    if (k === "youtube" && (extras.youtube.title || t.split("\n")[0]).length > 100) queueErrors.push("YouTube title over 100 characters");
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -611,7 +653,31 @@ export default function PostBuilder() {
                          border: sel ? `3px solid ${BRAND.focus}` : `1px solid ${C.border}`, opacity: sel ? 1 : 0.8 }} />;
             })}
           </div>
-          <button onClick={queue} disabled={!caption || !activePlatforms.length || submitting}
+          {refs.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 12, color: C.dim, marginBottom: 6 }}>Alt text (what the photo shows — SEO + accessibility, rides to every platform that takes it):</div>
+              {refs.map(f => (
+                <div key={f} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                  <img src={`/api/media/thumb?rel=${encodeURIComponent(f)}`} alt="" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, border: `1px solid ${C.border}`, flexShrink: 0 }} />
+                  <input value={alts[f] || ""} onChange={e => setAlts(a => ({ ...a, [f]: e.target.value }))}
+                    placeholder="e.g. Red-iron frame going vertical on a metal shop in Springtown" style={inp} />
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+            <label style={{ fontSize: 12, color: C.dim }}>Schedule:</label>
+            <input type="datetime-local" value={scheduleAt} onChange={e => setScheduleAt(e.target.value)}
+              style={{ ...inp, width: "auto" }} />
+            {scheduleAt && <button onClick={() => setScheduleAt("")} style={{ background: "none", border: "none", color: BRAND.link, fontSize: 12, cursor: "pointer" }}>clear</button>}
+            <span style={{ fontSize: 11, color: C.dim }}>{scheduleAt ? "queued to fire at this time" : "blank = post when approved"}</span>
+          </div>
+          {queueErrors.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              {queueErrors.map(e => <div key={e} style={{ fontSize: 12, color: "#D96C5C" }}>✕ {e}</div>)}
+            </div>
+          )}
+          <button onClick={queue} disabled={!caption || !activePlatforms.length || submitting || queueErrors.length > 0}
             style={{ padding: "9px 16px", background: BRAND.accent, color: "#0C1017", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer", opacity: (!caption || !activePlatforms.length) ? 0.5 : 1 }}>
             Queue post ({activePlatforms.length} platform{activePlatforms.length === 1 ? "" : "s"})
           </button>
@@ -648,7 +714,7 @@ export default function PostBuilder() {
                   ))}
                 </div>
               )}
-              <Preview platform={tab} placement={effPlacement} caption={text} refs={effRefs} link={link} />
+              <Preview platform={tab} placement={effPlacement} caption={text} refs={effRefs} link={link} extras={extras} />
               <div style={{ marginTop: 10, fontSize: 12, color: text.length > P.cap ? "#D96C5C" : C.dim }}>
                 {text.length}/{P.cap} characters
                 {(overrides[tab] !== undefined) && <button onClick={() => setOverrides(o => { const n = { ...o }; delete n[tab]; return n; })}
@@ -657,6 +723,46 @@ export default function PostBuilder() {
               <textarea value={overrides[tab] ?? ""} onChange={e => setOverrides(o => { const n = { ...o }; if (e.target.value === "") delete n[tab]; else n[tab] = e.target.value; return n; })} rows={2}
                 placeholder={`Override the caption for ${P.label} only (blank = shared caption)`}
                 style={{ ...inp, resize: "vertical", marginTop: 8 }} />
+              {tab === "gbp" && (
+                <div style={{ marginTop: 10, padding: 10, border: `1px solid ${C.border}`, borderRadius: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ fontSize: 11, color: C.dim, letterSpacing: 0.4 }}>GOOGLE POST SHAPE</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <select value={extras.gbp.type} onChange={e => setExtra("gbp", "type", e.target.value)} style={{ ...inp, width: "auto" }}>
+                      <option value="UPDATE">Update</option><option value="EVENT">Event</option><option value="OFFER">Offer</option>
+                    </select>
+                    <select value={extras.gbp.cta} onChange={e => setExtra("gbp", "cta", e.target.value)} style={{ ...inp, width: "auto" }}>
+                      {Object.entries(GBP_CTA).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    </select>
+                    <input value={extras.gbp.ctaUrl} onChange={e => setExtra("gbp", "ctaUrl", e.target.value)} placeholder="CTA link (blank = caption URL)" style={{ ...inp, flex: 1, minWidth: 160 }} />
+                  </div>
+                  {extras.gbp.type === "EVENT" && (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <input value={extras.gbp.eventTitle} onChange={e => setExtra("gbp", "eventTitle", e.target.value)} placeholder="Event title" style={{ ...inp, flex: 1, minWidth: 150 }} />
+                      <input type="date" value={extras.gbp.eventStart} onChange={e => setExtra("gbp", "eventStart", e.target.value)} style={{ ...inp, width: "auto" }} />
+                      <input type="date" value={extras.gbp.eventEnd} onChange={e => setExtra("gbp", "eventEnd", e.target.value)} style={{ ...inp, width: "auto" }} />
+                    </div>
+                  )}
+                  {extras.gbp.type === "OFFER" && (
+                    <input value={extras.gbp.couponCode} onChange={e => setExtra("gbp", "couponCode", e.target.value)} placeholder="Coupon code (optional)" style={inp} />
+                  )}
+                  <div style={{ fontSize: 11, color: C.dim }}>Google posts expire after 7 days — Offers last until their end date.</div>
+                </div>
+              )}
+              {tab === "pinterest" && (
+                <div style={{ marginTop: 10, padding: 10, border: `1px solid ${C.border}`, borderRadius: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <input value={extras.pinterest.board} onChange={e => setExtra("pinterest", "board", e.target.value)} placeholder="Board (required — a pin cannot exist without one)" style={{ ...inp, flex: 1, minWidth: 170 }} />
+                  <input value={extras.pinterest.link} onChange={e => setExtra("pinterest", "link", e.target.value)} placeholder="Destination link (a pin without one is wasted)" style={{ ...inp, flex: 1, minWidth: 170 }} />
+                </div>
+              )}
+              {tab === "youtube" && (
+                <div style={{ marginTop: 10 }}>
+                  <input value={extras.youtube.title} onChange={e => setExtra("youtube", "title", e.target.value)}
+                    placeholder="Video title (blank = first caption line)" maxLength={100} style={inp} />
+                  <div style={{ fontSize: 11, color: (extras.youtube.title || text.split("\n")[0]).length > 100 ? "#D96C5C" : C.dim, marginTop: 3 }}>
+                    {(extras.youtube.title || text.split("\n")[0]).length}/100 title characters
+                  </div>
+                </div>
+              )}
               {(refs.length > 0 || effRefs.length > 0) && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: 12, color: C.dim, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>

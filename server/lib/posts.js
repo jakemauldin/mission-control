@@ -7,7 +7,7 @@ import { randomBytes } from "crypto";
 
 const QDIR = join(import.meta.dirname, "..", "data", "social-post-queue");
 
-export function createPost({ caption, overrides, platforms, refs, refsByPlatform, jobContext }) {
+export function createPost({ caption, overrides, platforms, refs, refsByPlatform, jobContext, alts, scheduleAt, extras }) {
   mkdirSync(QDIR, { recursive: true });
   const id = `${new Date().toISOString().slice(0, 10)}-${randomBytes(3).toString("hex")}`;
   const post = {
@@ -22,6 +22,30 @@ export function createPost({ caption, overrides, platforms, refs, refsByPlatform
       ? Object.fromEntries(Object.entries(refsByPlatform).slice(0, 8).map(([k, v]) => [String(k), Array.isArray(v) ? v.slice(0, 10).map(String) : []]))
       : {},
     jobContext: String(jobContext || ""),
+    // Phase A fields (BUILDER-ROADMAP):
+    // alt text per photo — SEO/accessibility, accepted by FB/IG/X/LI/Pinterest
+    alts: alts && typeof alts === "object"
+      ? Object.fromEntries(Object.entries(alts).slice(0, 20).filter(([, v]) => v).map(([k, v]) => [String(k), String(v).slice(0, 1000)]))
+      : {},
+    // scheduling — FB/YT can take it via API later; the rest fire from our own cron
+    scheduleAt: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(scheduleAt || "")) ? String(scheduleAt) : null,
+    // platform-shaped fields: GBP post type/CTA, Pinterest board+link, YouTube title
+    extras: (() => {
+      const e = extras && typeof extras === "object" ? extras : {};
+      const out = {};
+      if (e.gbp) out.gbp = {
+        type: ["UPDATE", "EVENT", "OFFER"].includes(e.gbp.type) ? e.gbp.type : "UPDATE",
+        cta: ["LEARN_MORE", "BOOK", "ORDER", "BUY", "SIGN_UP", "CALL"].includes(e.gbp.cta) ? e.gbp.cta : "LEARN_MORE",
+        ctaUrl: String(e.gbp.ctaUrl || "").slice(0, 500),
+        eventTitle: String(e.gbp.eventTitle || "").slice(0, 120),
+        eventStart: String(e.gbp.eventStart || "").slice(0, 25),
+        eventEnd: String(e.gbp.eventEnd || "").slice(0, 25),
+        couponCode: String(e.gbp.couponCode || "").slice(0, 60),
+      };
+      if (e.pinterest) out.pinterest = { board: String(e.pinterest.board || "").slice(0, 120), link: String(e.pinterest.link || "").slice(0, 500) };
+      if (e.youtube) out.youtube = { title: String(e.youtube.title || "").slice(0, 100) };
+      return out;
+    })(),
   };
   const f = join(QDIR, `${id}.json`);
   writeFileSync(f + ".tmp", JSON.stringify(post, null, 2));
