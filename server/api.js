@@ -4,8 +4,11 @@ import { WebSocketServer } from "ws";
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { requireAuth, checkPassphrase, makeSessionCookie, clearSessionCookie, validSession } from "./lib/auth.js";
-import { buildBrief, snoozeItem } from "./lib/brief.js";
-import { listRfiJobs, getRfi, mediaCounts } from "./lib/rfis.js";
+import { buildBrief, snoozeItem, invalidateBrief } from "./lib/brief.js";
+import { listRfiJobs, getRfi, mediaCounts, updateRfiItem } from "./lib/rfis.js";
+import { systemsOutcomes } from "./lib/systems.js";
+import { createGenRequest, listGenRequests } from "./lib/gen.js";
+import chokidar from "chokidar";
 import { homedir } from "os";
 import { execDocker, execDockerJSON } from "./lib/docker.js";
 import { getJobs, getJobDetail } from "./lib/jobtread.js";
@@ -370,6 +373,49 @@ app.get("/api/rfis/:jobId", (req, res) => {
   if (!rfi) return res.status(404).json({ ok: false, error: "no rfi.json for that job" });
   res.json({ ok: true, data: rfi });
 });
+// Phase 2: the narrow RFI write path — exactly two fields (DESIGN.md §4)
+app.patch("/api/rfis/:jobId/items/:itemId", (req, res) => {
+  const { status, note } = req.body || {};
+  if (status === undefined && !note) return res.status(400).json({ ok: false, error: "status or note required" });
+  const r = updateRfiItem(req.params.jobId, req.params.itemId, { status, note });
+  if (r.error) return res.status(400).json({ ok: false, error: r.error });
+  res.json({ ok: true, data: r.item });
+});
+
+// Systems outcomes (DESIGN.md §6) — replaces /api/crons' scheduler-list reading
+app.get("/api/systems/outcomes", async (_req, res) => {
+  try { res.json({ ok: true, data: await systemsOutcomes() }); } catch (e) { res.json({ ok: false, error: e.message }); }
+});
+
+// Job detail (DESIGN.md §10 phase 2): JT overview + RFI counts + pay-app state
+app.get("/api/jobs/:id/detail", async (req, res) => {
+  try {
+    const [jt, rfis] = await Promise.all([getJobDetail(req.params.id), Promise.resolve(listRfiJobs())]);
+    let payApps = null;
+    try {
+      const b = loadJobBilling(req.params.id);
+      payApps = (b?.applications || []).map(a => ({ number: a.number, status: a.finalizedAt ? "finalized" : "draft", periodTo: a.periodTo }));
+    } catch { /* no billing store for job */ }
+    // ID bridge: JT uses long string ids, RFI dirs use Jake's internal job numbers.
+    // Match directly first, else extract the number from the JT job name ("... #119 ...").
+    let rfi = rfis.find(r => r.jobId === String(req.params.id)) || null;
+    if (!rfi) {
+      const jtName = jt?.data?.job?.name || jt?.job?.name || "";
+      const m = /\b(\d{2,3})\b/.exec(jtName);
+      if (m) rfi = rfis.find(r => r.jobId === m[1]) || null;
+    }
+    res.json({ ok: jt.ok !== false, data: { jt: jt.data || jt, rfi, payApps } });
+  } catch (e) { res.json({ ok: false, error: e.message }); }
+});
+
+// Media generation dispatch (DESIGN.md §3 — intent only, Fable authors prompts)
+app.post("/api/media/generate", (req, res) => {
+  try { res.json({ ok: true, data: createGenRequest(req.body || {}) }); } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.get("/api/media/generate", (_req, res) => {
+  try { res.json({ ok: true, data: listGenRequests() }); } catch (e) { res.json({ ok: false, error: e.message }); }
+});
+
 app.get("/api/media/counts", (_req, res) => {
   try { res.json({ ok: true, data: mediaCounts() }); } catch (e) { res.json({ ok: false, error: e.message }); }
 });
@@ -451,6 +497,28 @@ function broadcast(message) {
     if (ws.readyState === 1) ws.send(payload);
   }
 }
+
+// ── chokidar watchers → topic-tagged pushes (DESIGN.md §2/§4) ────────────────
+// A change to any job's rfi.json — from the dashboard, Jake's editor, or the
+// voice-dump merge — pushes rfi:<jobId> and refreshes the Brief. Debounced per file.
+try {
+  const rfiGlob = join(homedir(), "services", "rising-creek", "jobs");
+  const debounces = new Map();
+  chokidar.watch(rfiGlob, { depth: 2, ignoreInitial: true, awaitWriteFinish: { stabilityThreshold: 400 } })
+    .on("all", (_ev, fp) => {
+      if (!fp.endsWith("rfi.json")) return;
+      clearTimeout(debounces.get(fp));
+      debounces.set(fp, setTimeout(() => {
+        const jobId = fp.split("/").slice(-2)[0].split("-")[0];
+        invalidateBrief();
+        broadcast({ type: "rfi_update", topic: `rfi:${jobId}`, jobId, time: new Date().toISOString() });
+        broadcast({ type: "brief_update", topic: "brief:queue", time: new Date().toISOString() });
+      }, 250));
+    });
+  const genDir = join(import.meta.dirname, "data", "media-gen-queue");
+  chokidar.watch(genDir, { ignoreInitial: true, awaitWriteFinish: { stabilityThreshold: 400 } })
+    .on("all", () => broadcast({ type: "gen_update", topic: "media:gen", time: new Date().toISOString() }));
+} catch (e) { console.warn("watcher setup failed:", e.message); }
 
 // Periodic health poll → push to clients
 let lastHealthHash = "";

@@ -46,3 +46,35 @@ export function mediaCounts() {
     ...Object.fromEntries(Object.entries(buckets).map(([k, v]) => [k, v.length])),
   };
 }
+
+// Phase 2: the ONLY write path. Two fields, validated, atomic tmp+rename (same
+// pattern as lib/projects.js). Regenerating RFI-LOG.md stays out of scope — the
+// script that renders markdown keeps owning it.
+import { writeFileSync, renameSync } from "fs";
+const VALID_STATUS = ["blocking", "before_submittal", "cleanup", "closed"];
+
+export function updateRfiItem(jobId, itemId, { status, note }) {
+  let dirs = [];
+  try { dirs = readdirSync(JOBS_DIR); } catch { return { error: "jobs dir unreadable" }; }
+  const d = dirs.find(x => x === jobId || x.startsWith(jobId + "-"));
+  if (!d) return { error: "job not found" };
+  const f = join(JOBS_DIR, d, "rfi.json");
+  if (!existsSync(f)) return { error: "no rfi.json" };
+  const rfi = JSON.parse(readFileSync(f, "utf-8"));
+  let item = null;
+  for (const g of rfi.groups || []) for (const it of g.items || []) if (it.id === itemId) item = it;
+  if (!item) return { error: `item ${itemId} not found` };
+  if (status !== undefined) {
+    if (!VALID_STATUS.includes(status)) return { error: `status must be one of ${VALID_STATUS.join("/")}` };
+    item.status = status;
+  }
+  if (note) {
+    if (!Array.isArray(item.log)) item.log = [];
+    item.log.push({ ts: new Date().toISOString(), who: "RCC", note: String(note).slice(0, 2000) });
+  }
+  rfi.revised = new Date().toISOString().slice(0, 10);
+  const tmp = f + ".tmp";
+  writeFileSync(tmp, JSON.stringify(rfi, null, 2));
+  renameSync(tmp, f);
+  return { ok: true, item };
+}

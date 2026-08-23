@@ -1,0 +1,5 @@
+[
+  { "name": "JT sync",        "artifactPath": "/home/risingcreek/logs/jt-sync.log",                 "maxAgeHours": 26, "minBytes": 1, "owner": "jt-sync.sh cron" },
+  { "name": "TC help sync",   "artifactPath": "/home/risingcreek/services/logs/tc-help-sync.log",  "maxAgeHours": 30, "minBytes": 0, "owner": "run-tc-help-sync cron" },
+  { "name": "Vendor compliance", "artifactPath": "/home/risingcreek/services/logs/vendor-compliance.log", "maxAgeHours": 30, "minBytes": 0, "owner": "run-vendor-compliance cron" }
+]

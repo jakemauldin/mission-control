@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { C, BRAND } from "../lib/colors";
+import { useWebSocket } from "../hooks/useWebSocket";
 import { Section } from "../components/ui/Card";
 
 const TIER_LABEL = { 1: "SYSTEMS", 2: "BLOCKING", 3: "MONEY", 4: "RFI", 5: "MEDIA", 6: "DRIFT" };
@@ -25,6 +26,8 @@ export default function Brief({ showAll }) {
     } catch (e) { setErr(e.message); }
   }, []);
   useEffect(() => { load(); const t = setInterval(load, 60000); return () => clearInterval(t); }, [load]);
+  const ws = useWebSocket();
+  useEffect(() => { if (ws.lastMessage?.type === "brief_update") load(); }, [ws.lastMessage, load]);
 
   const snooze = async (key, days) => {
     const until = new Date(Date.now() + days * 86400000).toISOString();

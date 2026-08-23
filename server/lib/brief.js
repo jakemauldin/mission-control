@@ -171,13 +171,20 @@ async function digest() {
   for (let back = 0; back < 4; back++) {
     const d = new Date(Date.now() - back * 86400000).toISOString().slice(0, 10);
     const r = await execDocker(`cat /home/node/.openclaw/workspace/memory/intelligence/brief-${d}.md`);
-    if (r.ok && r.data?.trim()) return { date: d, stale: back > 0, text: r.data.split("\n").slice(0, 12).join("\n") };
+    if (r.ok && r.data?.trim()) {
+      // 2-3 lines, not a wall (§2): skip markdown headers, take the first 3 content lines
+      const lines = r.data.split("\n").filter(l => l.trim() && !l.trim().startsWith("#") && l.trim() !== "---");
+      return { date: d, stale: back > 0, text: lines.slice(0, 3).join("\n") };
+    }
   }
   return null; // section omitted entirely
 }
 
 // ── assembly ─────────────────────────────────────────────────
 let memo = { at: 0, data: null };
+// Called by the rfi.json watcher: without this the ws push tells the client to
+// refetch and the client gets the same 60s-memoized queue back.
+export function invalidateBrief() { memo = { at: 0, data: null }; }
 
 export async function buildBrief() {
   if (memo.data && Date.now() - memo.at < 60_000) return memo.data; // 60s TTL (§2)

@@ -11,6 +11,7 @@ import Brief from "./views/Brief";
 import Login from "./views/Login";
 import Media from "./views/Media";
 import { RfiIndex, RfiJob } from "./views/RFIs";
+import JobDetail from "./views/JobDetail";
 import JobsView from "./views/Jobs";
 import BillingView from "./views/Billing";
 import OpenBillsView from "./views/OpenBills";
@@ -79,6 +80,7 @@ function Shell() {
         <Routes>
           <Route path="/" element={<BriefRoute />} />
           <Route path="/jobs" element={<JobsView jobs={jobsData.jobs} live={jobsData.live} loading={jobsData.loading} />} />
+          <Route path="/jobs/:id" element={<JobDetail />} />
           <Route path="/money" element={<Navigate to="/money/pay-apps" replace />} />
           <Route path="/money/pay-apps/*" element={<BillingView jobs={jobsData.jobs} />} />
           <Route path="/money/bills" element={<OpenBillsView jobs={jobsData.jobs} />} />

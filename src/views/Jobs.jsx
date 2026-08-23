@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { C, inn } from "../lib/colors";
 import { Section } from "../components/ui/Card";
 import { Row } from "../components/ui/Row";
@@ -18,7 +19,7 @@ export default function JobsView({ jobs, live, loading }) {
       {jobs && jobs.length > 0 ? (
         <Row>
           {jobs.map((j) => (
-            <div key={j.id} style={inn}>
+            <Link key={j.id} to={`/jobs/${j.id}`} style={{ ...inn, display: "block", textDecoration: "none", color: "inherit", cursor: "pointer" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 600, color: C.bright }}>{j.name}</div>
@@ -39,7 +40,7 @@ export default function JobsView({ jobs, live, loading }) {
               <div style={{ marginTop: 6, fontSize: 9, color: C.dim }}>
                 {j.closedOn ? `Closed ${new Date(j.closedOn).toLocaleDateString()}` : `Created ${new Date(j.createdAt).toLocaleDateString()}`}
               </div>
-            </div>
+            </Link>
           ))}
         </Row>
       ) : (
