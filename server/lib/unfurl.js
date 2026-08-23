@@ -8,6 +8,7 @@
 // (169.254.* — the DO metadata endpoint lives there), and CGNAT 100.64/10,
 // which is Tailscale's range. Auth already gates the route; this is depth.
 import { lookup } from "dns/promises";
+import { Buffer } from "buffer";
 
 const cache = new Map(); // url -> {at, data}
 const TTL = 3600_000;
