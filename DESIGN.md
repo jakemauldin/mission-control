@@ -446,16 +446,10 @@ Systems, if a real spend log exists by then.
     finding in the audit and costs nothing while the auth middleware is already being written, so
     it ships in phase 1.
 
-## 12. Open decisions for Jake
+## 12. Open decisions — RESOLVED by Jake, 2026-08-23 morning
 
-1. **Does the client portal show money at all?** Options are photos and schedule only, or photos
-   and schedule plus a pay-app state chip (submitted / paid, never amounts). This changes what
-   `build-client-snapshot.mjs` is allowed to read and is the difference between a portal that can
-   never touch billing data and one that can.
-2. **Does the Brief also get pushed to Telegram at 6am?** If yes, phase 2 adds a formatter and a
-   cron (which only Jake can authorize) that sends the same ranked queue as text with deep links
-   into the dashboard. If no, the Brief is a place he opens.
-3. **Cutover style for phase 1.** Either `start.sh` switches to the new single process
-   immediately and `:5173` dies that night, or the new build runs alongside on a second port for
-   a week before the old one is removed. The first is cleaner and matches the brief; the second
-   costs one extra port and one week of two things running.
+1. **Portal money: photos + schedule only.** `build-client-snapshot.mjs` is structurally barred
+   from reading the billing store. No pay-app chip.
+2. **No 6am Telegram push.** The Brief is a place Jake opens. No new cron.
+3. **Clean cut.** `start.sh` switches to the one authenticated process in phase 1; `:5173` and
+   the open `:3080` die the same night.
