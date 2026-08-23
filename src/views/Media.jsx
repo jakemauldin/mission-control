@@ -12,6 +12,7 @@ const STATUS_COLOR = { "awaiting-prompt": "#fbbf24", queued: "#94a3b8", running:
 export default function Media() {
   const [counts, setCounts] = useState(null);
   const [queue, setQueue] = useState([]);
+  const [posts, setPosts] = useState([]);
   const [form, setForm] = useState({ type: "social ad", aspect: "9x16", jobContext: "", intent: "", refs: "" });
   const [created, setCreated] = useState(null);
   const [recent, setRecent] = useState([]);
@@ -20,6 +21,7 @@ export default function Media() {
 
   const loadQueue = useCallback(() => {
     fetch("/api/media/generate").then(r => r.json()).then(d => setQueue(d.data || [])).catch(() => {});
+    fetch("/api/media/posts").then(r => r.json()).then(d => setPosts(d.data || [])).catch(() => {});
   }, []);
   useEffect(() => {
     fetch("/api/media/counts").then(r => r.json()).then(d => setCounts(d.data)).catch(() => {});

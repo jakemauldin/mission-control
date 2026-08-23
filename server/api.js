@@ -8,7 +8,7 @@ import { buildBrief, snoozeItem, invalidateBrief } from "./lib/brief.js";
 import { listRfiJobs, getRfi, mediaCounts, updateRfiItem, recentMedia, thumbPathFor } from "./lib/rfis.js";
 import { systemsOutcomes } from "./lib/systems.js";
 import { createGenRequest, listGenRequests } from "./lib/gen.js";
-import { createPost, listPosts } from "./lib/posts.js";
+import { createPost, listPosts, updatePostStatus } from "./lib/posts.js";
 import { suggestPosts, recordSuggestionFeedback } from "./lib/suggest.js";
 import { unfurl } from "./lib/unfurl.js";
 import chokidar from "chokidar";
@@ -448,6 +448,11 @@ app.get("/api/media/unfurl", async (req, res) => {
 
 app.post("/api/media/posts", (req, res) => {
   try { res.json({ ok: true, data: createPost(req.body || {}) }); } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.patch("/api/media/posts/:id", async (req, res) => {
+  const r = await updatePostStatus(req.params.id, req.body?.status);
+  if (r.error) return res.status(400).json({ ok: false, error: r.error });
+  res.json({ ok: true, data: r.post });
 });
 app.get("/api/media/posts", (_req, res) => {
   try { res.json({ ok: true, data: listPosts() }); } catch (e) { res.json({ ok: false, error: e.message }); }

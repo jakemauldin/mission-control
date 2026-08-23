@@ -387,6 +387,17 @@ export default function PostBuilder() {
   }, [urlInText, unfurls]);
   const link = urlInText ? (unfurls[urlInText] || null) : null;
 
+  const effRefs = refsByPlatform[tab] ?? refs;
+  const customized = refsByPlatform[tab] !== undefined;
+  const editRefs = (fn) => setRefsByPlatform(o => ({ ...o, [tab]: fn([...(o[tab] ?? refs)]) }));
+  const togglePhoto = (f) => editRefs(l => l.includes(f) ? l.filter(x => x !== f) : [...l, f]);
+  const movePhoto = (f, dir) => editRefs(l => {
+    const i = l.indexOf(f); const j = i + dir;
+    if (i < 0 || j < 0 || j >= l.length) return l;
+    [l[i], l[j]] = [l[j], l[i]]; return l;
+  });
+  const makeCover = (f) => editRefs(l => [f, ...l.filter(x => x !== f)]);
+
   const suggest = async () => {
     setIdeas([]);
     try {
@@ -400,6 +411,7 @@ export default function PostBuilder() {
     setCaption(idea.caption);
     setRefs(idea.photos.map(p => p.file));
     setOn(o => Object.fromEntries(Object.keys(o).map(k => [k, idea.platforms.includes(k)])));
+    setRefsByPlatform({});
     setUsedIdea({ angle: idea.angle });
     fb({ suggestionId: sugId, angle: idea.angle, action: "used" });
     (ideas || []).filter(i => i.index !== idea.index).forEach(i => fb({ suggestionId: sugId, angle: i.angle, action: "ignored" }));
@@ -407,7 +419,7 @@ export default function PostBuilder() {
   };
   const queue = async () => {
     const r = await fetch("/api/media/posts", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ caption, overrides, platforms: activePlatforms, refs }) });
+      body: JSON.stringify({ caption, overrides, platforms: activePlatforms, refs, refsByPlatform }) });
     const d = await r.json();
     if (d.ok) {
       setQueued(d.data.id);
@@ -503,7 +515,7 @@ export default function PostBuilder() {
                   ))}
                 </div>
               )}
-              <Preview platform={tab} placement={placement} caption={text} refs={refs} link={link} />
+              <Preview platform={tab} placement={placement} caption={text} refs={effRefs} link={link} />
               <div style={{ marginTop: 10, fontSize: 12, color: text.length > P.cap ? "#D96C5C" : C.dim }}>
                 {text.length}/{P.cap} characters
                 {(overrides[tab] !== undefined) && <button onClick={() => setOverrides(o => { const n = { ...o }; delete n[tab]; return n; })}
@@ -512,6 +524,39 @@ export default function PostBuilder() {
               <textarea value={overrides[tab] ?? ""} onChange={e => setOverrides(o => ({ ...o, [tab]: e.target.value }))} rows={2}
                 placeholder={`Override the caption for ${P.label} only (blank = shared caption)`}
                 style={{ ...inp, resize: "vertical", marginTop: 8 }} />
+              {refs.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 12, color: C.dim, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                    Photos on {P.label} {customized
+                      ? <><span style={{ color: BRAND.focus }}>customized</span>
+                          <button onClick={() => setRefsByPlatform(o => { const n = { ...o }; delete n[tab]; return n; })}
+                            style={{ background: "none", border: "none", color: BRAND.link, fontSize: 12, cursor: "pointer", padding: 0 }}>reset to shared</button></>
+                      : <span>shared — tap to customize for this platform only</span>}
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {[...effRefs, ...refs.filter(f => !effRefs.includes(f))].map(f => {
+                      const inc = effRefs.includes(f);
+                      const idx = effRefs.indexOf(f);
+                      return (
+                        <div key={f} style={{ position: "relative", width: 74 }}>
+                          <img src={`/api/media/thumb?rel=${encodeURIComponent(f)}`} alt="" onClick={() => togglePhoto(f)}
+                            style={{ width: 74, height: 74, objectFit: "cover", borderRadius: 8, cursor: "pointer", display: "block",
+                                     border: inc ? `2px solid ${idx === 0 ? BRAND.focus : BRAND.border}` : `1px solid ${C.border}`,
+                                     opacity: inc ? 1 : 0.35, filter: inc ? "none" : "grayscale(60%)" }} />
+                          {inc && idx === 0 && <span style={{ position: "absolute", top: 2, left: 2, background: BRAND.focus, color: "#0C1017", fontSize: 9, fontWeight: 700, borderRadius: 4, padding: "1px 4px" }}>COVER</span>}
+                          {inc && (
+                            <div style={{ display: "flex", justifyContent: "center", gap: 3, marginTop: 2 }}>
+                              <button onClick={() => movePhoto(f, -1)} disabled={idx === 0} style={{ background: "none", border: `1px solid ${C.border}`, color: idx === 0 ? C.border : C.dim, borderRadius: 4, fontSize: 10, padding: "0 5px", cursor: "pointer" }}>◀</button>
+                              {idx !== 0 && <button onClick={() => makeCover(f)} title="Make cover" style={{ background: "none", border: `1px solid ${BRAND.border}`, color: BRAND.focus, borderRadius: 4, fontSize: 10, padding: "0 5px", cursor: "pointer" }}>★</button>}
+                              <button onClick={() => movePhoto(f, 1)} disabled={idx === effRefs.length - 1} style={{ background: "none", border: `1px solid ${C.border}`, color: idx === effRefs.length - 1 ? C.border : C.dim, borderRadius: 4, fontSize: 10, padding: "0 5px", cursor: "pointer" }}>▶</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               {warns.map(w => <div key={w} style={{ marginTop: 6, fontSize: 12, color: "#D9A93B" }}>⚠ {w}</div>)}
             </>
           )}
