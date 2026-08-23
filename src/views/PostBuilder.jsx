@@ -3,7 +3,7 @@
 // per PLACEMENT (FB desktop/mobile/story/in-stream, IG feed/story/reel, ...), not
 // one generic card per platform. YouTube and Houzz added as targets. AI suggestions
 // (captions + photo picks, learning loop) and true link unfurls carry over.
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { C, BRAND } from "../lib/colors";
 import { Section } from "../components/ui/Card";
@@ -352,6 +352,61 @@ function Preview({ platform, placement, caption, refs, link }) {
   );
 }
 
+// Drag-to-arrange photo strip (Jake, 8/23: "drag around vs arrow buttons").
+// Pointer events so it works on desktop AND phone; a <6px pointer travel is a TAP
+// (toggle include), beyond that it's a DRAG (live reorder; dragging an excluded
+// photo into the strip includes it at the drop position). First photo = cover.
+function PhotoStrip({ effRefs, allRefs, onToggle, onPlace, coverBadge = true }) {
+  const [dragging, setDragging] = useState(null);
+  const st = React.useRef({ file: null, sx: 0, sy: 0, moved: false, last: null });
+
+  const down = (e, f) => {
+    st.current = { file: f, sx: e.clientX, sy: e.clientY, moved: false, last: null };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const move = (e) => {
+    const d = st.current;
+    if (!d.file) return;
+    if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6) return;
+    if (!d.moved) { d.moved = true; setDragging(d.file); }
+    const el = document.elementsFromPoint(e.clientX, e.clientY).find(x => x.dataset?.photo && x.dataset.photo !== d.file);
+    const target = el?.dataset.photo;
+    if (target && target !== d.last) {
+      d.last = target;
+      onPlace(d.file, target);   // place dragged file at target's position (includes if excluded)
+    }
+  };
+  const up = () => {
+    const d = st.current;
+    if (d.file && !d.moved) onToggle(d.file);
+    st.current = { file: null, sx: 0, sy: 0, moved: false, last: null };
+    setDragging(null);
+  };
+
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} onPointerMove={move} onPointerUp={up} onPointerLeave={up}>
+      {[...effRefs, ...allRefs.filter(f => !effRefs.includes(f))].map(f => {
+        const inc = effRefs.includes(f);
+        const idx = effRefs.indexOf(f);
+        const isDrag = dragging === f;
+        return (
+          <div key={f} data-photo={f} onPointerDown={(e) => down(e, f)}
+            style={{ position: "relative", width: 74, height: 74, touchAction: "none", cursor: inc ? "grab" : "pointer",
+                     transform: isDrag ? "scale(1.08)" : "none", zIndex: isDrag ? 5 : 1, transition: isDrag ? "none" : "transform .12s" }}>
+            <img src={`/api/media/thumb?rel=${encodeURIComponent(f)}`} alt="" draggable={false} data-photo={f}
+              style={{ width: 74, height: 74, objectFit: "cover", borderRadius: 8, display: "block", pointerEvents: "none",
+                       border: inc ? `2px solid ${idx === 0 ? BRAND.focus : BRAND.border}` : `1px solid ${C.border}`,
+                       opacity: inc ? 1 : 0.35, filter: inc ? "none" : "grayscale(60%)",
+                       boxShadow: isDrag ? "0 6px 18px rgba(0,0,0,.5)" : "none" }} />
+            {coverBadge && inc && idx === 0 &&
+              <span style={{ position: "absolute", top: 2, left: 2, background: BRAND.focus, color: "#0C1017", fontSize: 9, fontWeight: 700, borderRadius: 4, padding: "1px 4px", pointerEvents: "none" }}>COVER</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function PostBuilder() {
   const [caption, setCaption] = useState("");
   const [overrides, setOverrides] = useState({});
@@ -393,12 +448,13 @@ export default function PostBuilder() {
   const customized = refsByPlatform[tab] !== undefined;
   const editRefs = (fn) => setRefsByPlatform(o => ({ ...o, [tab]: fn([...(o[tab] ?? refs)]) }));
   const togglePhoto = (f) => editRefs(l => l.includes(f) ? l.filter(x => x !== f) : [...l, f]);
-  const movePhoto = (f, dir) => editRefs(l => {
-    const i = l.indexOf(f); const j = i + dir;
-    if (i < 0 || j < 0 || j >= l.length) return l;
-    [l[i], l[j]] = [l[j], l[i]]; return l;
+  const placePhoto = (f, target) => editRefs(l => {
+    const without = l.filter(x => x !== f);
+    const ti = without.indexOf(target);
+    if (ti < 0) return l.includes(f) ? l : [...l, f];
+    without.splice(ti, 0, f);
+    return without;
   });
-  const makeCover = (f) => editRefs(l => [f, ...l.filter(x => x !== f)]);
 
   const suggest = async () => {
     setIdeas([]);
@@ -538,30 +594,9 @@ export default function PostBuilder() {
                       ? <><span style={{ color: BRAND.focus }}>customized</span>
                           <button onClick={() => setRefsByPlatform(o => { const n = { ...o }; delete n[tab]; return n; })}
                             style={{ background: "none", border: "none", color: BRAND.link, fontSize: 12, cursor: "pointer", padding: 0 }}>reset to shared</button></>
-                      : <span>shared — tap to customize for this platform only</span>}
+                      : <span>shared — tap to include/exclude, drag to arrange (forks this platform)</span>}
                   </div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {[...effRefs, ...refs.filter(f => !effRefs.includes(f))].map(f => {
-                      const inc = effRefs.includes(f);
-                      const idx = effRefs.indexOf(f);
-                      return (
-                        <div key={f} style={{ position: "relative", width: 74 }}>
-                          <img src={`/api/media/thumb?rel=${encodeURIComponent(f)}`} alt="" onClick={() => togglePhoto(f)}
-                            style={{ width: 74, height: 74, objectFit: "cover", borderRadius: 8, cursor: "pointer", display: "block",
-                                     border: inc ? `2px solid ${idx === 0 ? BRAND.focus : BRAND.border}` : `1px solid ${C.border}`,
-                                     opacity: inc ? 1 : 0.35, filter: inc ? "none" : "grayscale(60%)" }} />
-                          {inc && idx === 0 && <span style={{ position: "absolute", top: 2, left: 2, background: BRAND.focus, color: "#0C1017", fontSize: 9, fontWeight: 700, borderRadius: 4, padding: "1px 4px" }}>COVER</span>}
-                          {inc && (
-                            <div style={{ display: "flex", justifyContent: "center", gap: 3, marginTop: 2 }}>
-                              <button onClick={() => movePhoto(f, -1)} disabled={idx === 0} style={{ background: "none", border: `1px solid ${C.border}`, color: idx === 0 ? C.border : C.dim, borderRadius: 4, fontSize: 10, padding: "0 5px", cursor: "pointer" }}>◀</button>
-                              {idx !== 0 && <button onClick={() => makeCover(f)} title="Make cover" style={{ background: "none", border: `1px solid ${BRAND.border}`, color: BRAND.focus, borderRadius: 4, fontSize: 10, padding: "0 5px", cursor: "pointer" }}>★</button>}
-                              <button onClick={() => movePhoto(f, 1)} disabled={idx === effRefs.length - 1} style={{ background: "none", border: `1px solid ${C.border}`, color: idx === effRefs.length - 1 ? C.border : C.dim, borderRadius: 4, fontSize: 10, padding: "0 5px", cursor: "pointer" }}>▶</button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <PhotoStrip effRefs={effRefs} allRefs={refs} onToggle={togglePhoto} onPlace={placePhoto} />
                 </div>
               )}
               {warns.map(w => <div key={w} style={{ marginTop: 6, fontSize: 12, color: "#D9A93B" }}>⚠ {w}</div>)}
