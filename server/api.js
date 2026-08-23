@@ -16,7 +16,7 @@ import {
   getSettings as getSessionSettings, saveSettings as saveSessionSettings, startAutoPark,
 } from "./lib/sessions.js";
 import { listTabs as listBrowserTabs, openUrl as openBrowserUrl, activate as activateBrowserTab, close as closeBrowserTab, isHttpUrl } from "./lib/kasm.js";
-import { listSkills, getSkill, saveSkill, createSkill, copySkill } from "./lib/skills.js";
+import { listSkills, getSkill, saveSkill, createSkill, copySkill, deleteSkill, forkSkill } from "./lib/skills.js";
 import chokidar from "chokidar";
 import { homedir } from "os";
 import { execDocker, execDockerJSON } from "./lib/docker.js";
@@ -687,6 +687,22 @@ app.post("/api/skills", async (req, res) => {
 app.post("/api/skills/:area/:name/copy", async (req, res) => {
   try {
     const r = await copySkill(req.params.area, req.params.name, req.body?.areas, { overwrite: !!req.body?.overwrite });
+    if (r.ok) broadcast({ type: "skills_update", time: new Date().toISOString() });
+    res.status(r.ok ? 200 : 400).json(r);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+// Delete = git rm + commit for the git-tracked set, a rename into a sibling skills-trash/
+// everywhere else. Fork = the whole folder into ~/services/claude-skills (editable, git).
+app.delete("/api/skills/:area/:name", async (req, res) => {
+  try {
+    const r = await deleteSkill(req.params.area, req.params.name);
+    if (r.ok) broadcast({ type: "skills_update", time: new Date().toISOString() });
+    res.status(r.ok ? 200 : r.error === "not found" ? 404 : 400).json(r);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post("/api/skills/:area/:name/fork", async (req, res) => {
+  try {
+    const r = await forkSkill(req.params.area, req.params.name, req.body?.newName);
     if (r.ok) broadcast({ type: "skills_update", time: new Date().toISOString() });
     res.status(r.ok ? 200 : 400).json(r);
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }

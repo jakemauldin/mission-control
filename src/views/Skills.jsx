@@ -70,14 +70,17 @@ function describeResults(results, areas) {
   }).join("\n");
 }
 
-// ── one skill, expanded: read / edit / copy ──────────────────────────────────
-function SkillDetail({ area, skill, areas, onChanged }) {
+// ── one skill, expanded: read / edit / copy / fork / delete ──────────────────
+function SkillDetail({ area, skill, areas, onChanged, onNote, openSkill }) {
   const [doc, setDoc] = useState(null);
   const [draft, setDraft] = useState("");
   const [err, setErr] = useState(null);
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
   const [targets, setTargets] = useState([]);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [delName, setDelName] = useState("");
+  const [forkName, setForkName] = useState(skill.name);
 
   const load = useCallback(async () => {
     setErr(null);
@@ -123,9 +126,34 @@ function SkillDetail({ area, skill, areas, onChanged }) {
     finally { setBusy(false); }
   };
 
+  const del = async () => {
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/skills/${area.id}/${skill.name}`, { method: "DELETE" });
+      const body = await r.json();
+      if (!body.ok) throw new Error(body.error || `HTTP ${r.status}`);
+      onNote?.(`Deleted ${skill.name} from ${area.label}: ${body.message}`);
+      onChanged?.();
+    } catch (e) { setMsg(`Delete failed: ${e.message}`); setBusy(false); }
+  };
+
+  const fork = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      const r = await fetch(`/api/skills/${area.id}/${skill.name}/fork`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ newName: forkName }) });
+      const body = await r.json();
+      if (!body.ok) throw new Error(body.error || `HTTP ${r.status}`);
+      onNote?.(`Forked ${skill.name} → ${body.path} (${body.files} files)${body.link ? " · symlinked" : ""}${body.commit ? ` · committed ${body.commit}` : body.commitError ? ` · commit failed: ${body.commitError}` : ""}`);
+      const done = onChanged?.();
+      (done?.then ? done : Promise.resolve()).then(() => openSkill?.("claude-code", body.name));
+    } catch (e) { setMsg(`Fork failed: ${e.message}`); }
+    finally { setBusy(false); }
+  };
+
   if (err) return <div style={{ ...noteS, marginTop: 8 }}>{err}</div>;
   if (!doc) return <div style={{ fontSize: 12, color: C.dim, marginTop: 8 }}>Loading…</div>;
   const editable = doc.writable;
+  const dangerS = { ...btnS(false), background: "rgba(220,38,38,0.14)", color: "#FCA5A5" };
   return (
     <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8, cursor: "default" }}>
       <div style={{ fontSize: 11, color: C.dim, fontFamily: MONO, display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -147,11 +175,32 @@ function SkillDetail({ area, skill, areas, onChanged }) {
             <button style={btnS(true)} disabled={!dirty || busy} onClick={save}>{busy ? "Saving…" : doc.git ? "Save + commit" : "Save"}</button>
             <button style={btnS(false)} disabled={!dirty || busy} onClick={() => setDraft(doc.content)}>Revert</button>
             {dirty && <span style={{ fontSize: 11, color: STATUS.warn }}>unsaved</span>}
+            <span style={{ flex: 1 }} />
+            {!confirmDel && <button style={dangerS} disabled={busy} onClick={() => { setConfirmDel(true); setDelName(""); }}>Delete…</button>}
           </>
         ) : (
           <span style={{ fontSize: 11, color: C.dim }}>Read-only: {area.note}</span>
         )}
       </div>
+      {confirmDel && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "8px 10px", border: "1px solid rgba(220,38,38,0.35)", borderRadius: 8 }}>
+          <span style={{ fontSize: 12, color: C.text }}>
+            Type <span style={{ fontFamily: MONO, color: "#FCA5A5" }}>{skill.name}</span> to delete it from {area.label}.
+            {doc.git ? " It is git-tracked — history keeps a copy." : " It will be moved to a skills-trash folder, not erased."}
+          </span>
+          <input value={delName} onChange={(e) => setDelName(e.target.value)} placeholder={skill.name} style={{ ...inputS, fontFamily: MONO, maxWidth: 240 }} />
+          <button style={dangerS} disabled={busy || delName !== skill.name} onClick={del}>{busy ? "Deleting…" : "Delete"}</button>
+          <button style={btnS(false)} disabled={busy} onClick={() => setConfirmDel(false)}>Cancel</button>
+        </div>
+      )}
+      {area.id !== "claude-code" && (
+        <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }} title="Copies the whole folder (scripts and references included) into ~/services/claude-skills, symlinks it for Claude Code, and commits. The original stays put.">Fork to host</span>
+          <input value={forkName} onChange={(e) => setForkName(e.target.value.trim().toLowerCase())} style={{ ...inputS, fontFamily: MONO, maxWidth: 240 }} />
+          <button style={btnS(false)} disabled={busy || !NAME_RE.test(forkName)} onClick={fork}>{busy ? "Forking…" : "Fork (whole folder → git)"}</button>
+          {areas.find((a) => a.id === "claude-code")?.skills.some((s) => s.name === forkName) && <span style={{ fontSize: 11, color: STATUS.warn }}>that name already exists on the host</span>}
+        </div>
+      )}
       {copyTargets.length > 0 && (
         <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>Copy to</span>
@@ -171,7 +220,7 @@ function SkillDetail({ area, skill, areas, onChanged }) {
 }
 
 // ── one row ──────────────────────────────────────────────────────────────────
-function SkillRow({ area, skill, elsewhere, open, onToggle, areas, onChanged }) {
+function SkillRow({ area, skill, elsewhere, open, onToggle, areas, onChanged, onNote, openSkill }) {
   const desc = (skill.description || "").replace(/\s+/g, " ").trim();
   return (
     <div id={`skill-${area.id}-${skill.name}`} role="button" tabIndex={0} onClick={onToggle}
@@ -190,13 +239,13 @@ function SkillRow({ area, skill, elsewhere, open, onToggle, areas, onChanged }) 
         )}
         <span style={{ fontSize: 11, color: C.dim, fontFamily: MONO, whiteSpace: "nowrap" }} title={when(skill.mtime)}>{ago(skill.mtime)}</span>
       </div>
-      {open && <SkillDetail area={area} skill={skill} areas={areas} onChanged={onChanged} />}
+      {open && <SkillDetail area={area} skill={skill} areas={areas} onChanged={onChanged} onNote={onNote} openSkill={openSkill} />}
     </div>
   );
 }
 
 // ── one area ─────────────────────────────────────────────────────────────────
-function AreaSection({ area, areas, index, open, setOpen, onChanged }) {
+function AreaSection({ area, areas, index, open, setOpen, onChanged, onNote, openSkill }) {
   const [show, setShow] = useState(!area.collapsed);
   const n = area.skills.length;
   return (
@@ -211,7 +260,7 @@ function AreaSection({ area, areas, index, open, setOpen, onChanged }) {
       {n > 0 && show && area.skills.map((s) => {
         const key = `${area.id}/${s.name}`;
         const elsewhere = (index.get(s.name) || []).filter((e) => e.area !== area.id).map((e) => ({ ...e, same: e.hash === s.hash }));
-        return <SkillRow key={key} area={area} skill={s} areas={areas} elsewhere={elsewhere} open={open === key} onToggle={() => setOpen(open === key ? null : key)} onChanged={onChanged} />;
+        return <SkillRow key={key} area={area} skill={s} areas={areas} elsewhere={elsewhere} open={open === key} onToggle={() => setOpen(open === key ? null : key)} onChanged={onChanged} onNote={onNote} openSkill={openSkill} />;
       })}
       {n > 0 && show && area.collapsed && <button style={{ ...btnS(false), marginTop: 8 }} onClick={() => setShow(false)}>Hide</button>}
     </Section>
@@ -293,6 +342,7 @@ export default function SkillsView() {
   const [err, setErr] = useState(null);
   const [open, setOpen] = useState(null);
   const [composing, setComposing] = useState(false);
+  const [note, setNote] = useState(null);
   const { lastMessage } = useWebSocket();
 
   const load = useCallback(async () => {
@@ -342,6 +392,12 @@ export default function SkillsView() {
           <button style={btnS(true)} onClick={() => { setComposing(true); setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 0); }}>New skill</button>
           <button style={btnS(false)} onClick={load}>Refresh</button>
         </div>
+        {note && (
+          <div style={{ ...noteS, marginTop: 8, display: "flex", gap: 10, alignItems: "baseline" }}>
+            <span style={{ flex: 1 }}>{note}</span>
+            <button style={{ ...btnS(false), flexShrink: 0 }} onClick={() => setNote(null)}>Dismiss</button>
+          </div>
+        )}
       </Section>
       {composing && (
         <Composer areas={areas} onClose={() => setComposing(false)}
@@ -349,7 +405,7 @@ export default function SkillsView() {
           onCreated={(name, areaId) => { load().then(() => areaId && openSkill(areaId, name)); }} />
       )}
       {areas.map((a) => (
-        <AreaSection key={a.id} area={a} areas={areas} index={index} open={open} setOpen={setOpen} onChanged={load} />
+        <AreaSection key={a.id} area={a} areas={areas} index={index} open={open} setOpen={setOpen} onChanged={load} onNote={setNote} openSkill={openSkill} />
       ))}
     </div>
   );

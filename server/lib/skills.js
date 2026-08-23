@@ -168,6 +168,17 @@ function run(cmd, args, { stdin, timeout = DOCKER_TIMEOUT } = {}) {
     if (stdin !== undefined) { child.stdin.on("error", () => {}); child.stdin.end(stdin); } else child.stdin?.end();
   });
 }
+// Binary-safe variant (tar streams for fork). utf-8 decoding would corrupt the archive.
+function runBuf(cmd, args, { stdin, timeout = 60_000 } = {}) {
+  return new Promise((resolveP) => {
+    const child = execFile(cmd, args, { timeout, encoding: "buffer", maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) return resolveP({ ok: false, error: (stderr || "").toString().trim() || err.message });
+      resolveP({ ok: true, stdout });
+    });
+    child.stdin.on("error", () => {});
+    if (stdin !== undefined) child.stdin.end(stdin); else child.stdin.end();
+  });
+}
 const dockerExec = (args, opts) => run("docker", ["exec", ...args], opts);
 
 const sha1 = (s) => createHash("sha1").update(s).digest("hex").slice(0, 12);
@@ -417,9 +428,14 @@ async function writeDockerAtomic(file, content) {
 // path, serialized so two saves cannot race on index.lock. Commit only — push stays with
 // a human session (credentials, and the house rule to review before it leaves the box).
 let gitChain = Promise.resolve();
+function withGit(work) {
+  const p = gitChain.then(work, work);
+  gitChain = p.catch(() => {});
+  return p;
+}
 function gitCommitPath(absFile, message) {
   const rel = relative(SERVICES, absFile);
-  const work = async () => {
+  return withGit(async () => {
     const add = await run("git", ["-C", SERVICES, "add", "--", rel], { timeout: 30_000 });
     if (!add.ok) throw new Error(`git add failed: ${add.error}`);
     const commit = await run("git", ["-C", SERVICES, "commit", "-m", message, "--", rel], { timeout: 60_000 });
@@ -429,10 +445,7 @@ function gitCommitPath(absFile, message) {
     }
     const head = await run("git", ["-C", SERVICES, "rev-parse", "--short", "HEAD"], { timeout: 10_000 });
     return head.ok ? head.stdout.trim() : "committed";
-  };
-  const p = gitChain.then(work, work);
-  gitChain = p.catch(() => {});
-  return p;
+  });
 }
 
 async function ensureLink(name) {
@@ -526,4 +539,130 @@ export async function copySkill(fromAreaId, name, toAreaIds, { overwrite = false
   }
   invalidateSkills();
   return { ok: results.some((r) => r.ok), results };
+}
+
+// ── delete ───────────────────────────────────────────────────────────────────
+// Nothing is ever rm -rf'd. Git-tracked skills are `git rm` + commit (history is the
+// safety net); everything else is renamed into a sibling `skills-trash/` folder — outside
+// the skills root, so no loader can rediscover it — with a timestamp for hand-recovery.
+const trashStamp = () => new Date().toISOString().slice(0, 19).replace(/:/g, "-");
+
+export async function deleteSkill(areaId, name) {
+  const area = getArea(areaId);
+  if (!area) return { ok: false, error: "unknown area" };
+  if (!area.writable) return { ok: false, error: "this area is read-only" };
+  if (!isSkillName(name)) return { ok: false, error: "bad skill name" };
+  const loc = await locate(area, name);
+  const existing = await readFileAt(loc);
+  if (!existing.ok) return { ok: false, error: "not found" };
+  invalidateSkills();
+
+  if (loc.kind === "docker") {
+    const dir = posix.dirname(loc.file);
+    const trash = posix.join(posix.dirname(area.root), "skills-trash", `${name}-${trashStamp()}`);
+    const r = await dockerExec(["-u", "node", CONTAINER, "sh", "-c",
+      'set -e; mkdir -p "$(dirname "$2")"; mv "$1" "$2"', "sh", dir, trash]);
+    if (!r.ok) return { ok: false, error: `container delete failed: ${r.error}` };
+    return { ok: true, message: `Moved to ${CONTAINER}:${trash}` };
+  }
+
+  const dir = dirname(loc.file);
+  if (area.kind === "claude-code") {
+    if (loc.git) {
+      // drop the ~/.claude/skills symlink first, then git rm + commit
+      try {
+        const lst = await fs.lstat(join(CC_LINKS, name));
+        if (lst.isSymbolicLink()) await fs.unlink(join(CC_LINKS, name));
+      } catch { /* no link */ }
+      try {
+        const commit = await withGit(async () => {
+          const rm = await run("git", ["-C", SERVICES, "rm", "-r", "-q", "--", relative(SERVICES, dir)], { timeout: 30_000 });
+          if (!rm.ok) throw new Error(`git rm failed: ${rm.error}`);
+          const c = await run("git", ["-C", SERVICES, "commit", "-m", `skill: ${name} removed from dashboard`, "--", relative(SERVICES, dir)], { timeout: 60_000 });
+          if (!c.ok) throw new Error(`git commit failed: ${c.error || c.stdout}`);
+          const head = await run("git", ["-C", SERVICES, "rev-parse", "--short", "HEAD"], { timeout: 10_000 });
+          return head.ok ? head.stdout.trim() : "committed";
+        });
+        await fs.rm(dir, { recursive: true, force: true }); // leftovers git never tracked (__pycache__ etc.)
+        return { ok: true, message: `Removed, unlinked, committed (${commit}) — git history keeps it`, commit };
+      } catch (e) { return { ok: false, error: e.message }; }
+    }
+    if (loc.localOnly) {
+      const trash = join(dirname(CC_LINKS), "skills-trash", `${name}-${trashStamp()}`);
+      await fs.mkdir(dirname(trash), { recursive: true });
+      await fs.rename(dir, trash);
+      return { ok: true, message: `Moved to ${tilde(trash)} (local-only skill, not in git — recover by moving it back)` };
+    }
+    // symlink pointing outside the git dir: removing it from this area = removing the link
+    try {
+      const lst = await fs.lstat(join(CC_LINKS, name));
+      if (lst.isSymbolicLink()) { await fs.unlink(join(CC_LINKS, name)); return { ok: true, message: `Unlinked ~/.claude/skills/${name} (its target was left untouched)` }; }
+    } catch { /* fall through */ }
+    return { ok: false, error: "could not resolve what to delete" };
+  }
+
+  // plain host area (paperclip)
+  const trash = join(dirname(area.root), "skills-trash", `${name}-${trashStamp()}`);
+  await fs.mkdir(dirname(trash), { recursive: true });
+  await fs.rename(dir, trash);
+  return { ok: true, message: `Moved to ${tilde(trash)}` };
+}
+
+// ── fork to host ─────────────────────────────────────────────────────────────
+// The whole skill folder (scripts, references — docx is 60 files), not just SKILL.md,
+// copied into ~/services/claude-skills/<newName>, symlinked, committed. This is how a
+// read-only plugin or bundled skill becomes an editable, git-tracked host skill. The
+// frontmatter name is rewritten when forking under a new name. Caveats stay with the
+// owner: Anthropic keeps updating the plugin original (the list's hash compare shows
+// "differs"), and scripts still need their runtime deps wherever the fork is deployed.
+export async function forkSkill(fromAreaId, name, newNameRaw) {
+  const area = getArea(fromAreaId);
+  if (!area) return { ok: false, error: "unknown area" };
+  if (area.kind === "claude-code") return { ok: false, error: "already a host skill — use Copy to for other areas" };
+  if (!isSkillName(name)) return { ok: false, error: "bad skill name" };
+  const newName = String(newNameRaw || name).trim();
+  if (!isSkillName(newName)) return { ok: false, error: "new name must be kebab-case: lowercase letters, digits, single dashes" };
+  const dstDir = join(CC_SOURCE, newName);
+  try { await fs.stat(dstDir); return { ok: false, error: `~/services/claude-skills/${newName} already exists` }; } catch { /* good */ }
+  try { await fs.lstat(join(CC_LINKS, newName)); return { ok: false, error: `~/.claude/skills/${newName} already exists — pick another name` }; } catch { /* good */ }
+
+  const staging = join(CC_SOURCE, `.fork-${process.pid}-${randomBytes(3).toString("hex")}`);
+  try {
+    await fs.mkdir(staging, { recursive: true });
+    if (area.kind === "docker") {
+      const t = await runBuf("docker", ["exec", "-u", "node", CONTAINER, "tar", "-C", area.root,
+        "--exclude=__pycache__", "--exclude=node_modules", "--exclude=.git", "-cf", "-", name]);
+      if (!t.ok) return { ok: false, error: `container read failed: ${t.error}` };
+      const x = await runBuf("tar", ["-xf", "-", "-C", staging], { stdin: t.stdout });
+      if (!x.ok) return { ok: false, error: `unpack failed: ${x.error}` };
+    } else {
+      const loc = await locate(area, name);
+      const srcDir = dirname(loc.file);
+      await fs.stat(join(srcDir, "SKILL.md"));
+      await fs.cp(srcDir, join(staging, name), {
+        recursive: true,
+        filter: (src) => !/(^|\/)(__pycache__|node_modules|\.git)(\/|$)/.test(src),
+      });
+    }
+    const stagedSkill = join(staging, name);
+    let content = await fs.readFile(join(stagedSkill, "SKILL.md"), "utf-8");
+    const { meta, hasFrontmatter } = parseFrontmatter(content);
+    if (!hasFrontmatter) return { ok: false, error: "source SKILL.md has no frontmatter" };
+    if (meta.name !== newName) content = content.replace(/^name:.*$/m, `name: ${newName}`);
+    const bad = validateSkillContent(newName, content);
+    if (bad) return { ok: false, error: `after rename: ${bad}` };
+    await writeHostAtomic(join(stagedSkill, "SKILL.md"), content);
+    await fs.rename(stagedSkill, dstDir);
+    const files = (await extraFiles(dstDir)).length + 1;
+    const result = { ok: true, path: tilde(join(dstDir, "SKILL.md")), files, name: newName };
+    try { result.link = await ensureLink(newName); } catch (e) { result.linkError = e.message; }
+    try { result.commit = await gitCommitPath(dstDir, `skill: ${newName} forked from ${fromAreaId}/${name} via dashboard`); }
+    catch (e) { result.commitError = e.message; }
+    invalidateSkills();
+    return result;
+  } catch (e) {
+    return { ok: false, error: e.message };
+  } finally {
+    await fs.rm(staging, { recursive: true, force: true }).catch(() => {});
+  }
 }
