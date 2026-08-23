@@ -468,7 +468,7 @@ export default function PostBuilder() {
               <button key={k} onClick={() => setOn(o => ({ ...o, [k]: !o[k] }))}
                 style={{ padding: "5px 11px", borderRadius: 16, fontSize: 12, cursor: "pointer",
                          border: `1px solid ${on[k] ? BRAND.border : C.border}`,
-                         background: on[k] ? "rgba(168,149,43,.15)" : "none", color: on[k] ? BRAND.focus : C.dim }}>
+                         background: on[k] ? "rgba(168,149,43,.15)" : C.card, color: on[k] ? BRAND.focus : C.text }}>
                 {p.label}
               </button>
             ))}
@@ -492,14 +492,19 @@ export default function PostBuilder() {
 
         <div>
           <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
-            {activePlatforms.map(k => (
-              <button key={k} onClick={() => setTab(k)}
-                style={{ padding: "6px 12px", borderRadius: 8, fontSize: 12, cursor: "pointer", fontWeight: tab === k ? 700 : 400,
-                         border: `1px solid ${tab === k ? BRAND.border : C.border}`, background: tab === k ? C.card : "none",
-                         color: tab === k ? BRAND.focus : C.text }}>
-                {PLATFORMS[k].label}
-              </button>
-            ))}
+            {Object.keys(PLATFORMS).map(k => {
+              const active = on[k];
+              return (
+                <button key={k}
+                  onClick={() => { if (!active) setOn(o => ({ ...o, [k]: true })); setTab(k); }}
+                  title={active ? undefined : `Add ${PLATFORMS[k].label} to this post`}
+                  style={{ padding: "6px 12px", borderRadius: 8, fontSize: 12, cursor: "pointer", fontWeight: tab === k ? 700 : 400,
+                           border: `1px ${active ? "solid" : "dashed"} ${tab === k ? BRAND.border : C.border}`, background: tab === k ? C.card : "none",
+                           color: tab === k ? BRAND.focus : active ? C.text : C.dim, opacity: active ? 1 : 0.75 }}>
+                  {active ? PLATFORMS[k].label : `+ ${PLATFORMS[k].label}`}
+                </button>
+              );
+            })}
           </div>
           {activePlatforms.length === 0 ? <div style={{ color: C.dim, fontSize: 13 }}>Pick at least one platform.</div> : (
             <>
