@@ -62,3 +62,12 @@ content and ranking logic, Media + RFI workspace interaction design, client-view
 auth mechanism, Systems page content, serving/auth architecture, tech choices with WHY
 (keep Vite+React? state? styling?), migration order from the 16 existing views, and a
 phased build plan where phase 1 is shippable in one session.
+
+## Addendum (Jake, mid-design)
+
+- **Higgsfield generation is Fable-prompted**: the Media workspace dispatches generation jobs,
+  but prompt authoring happens in Jake's session (Fable), never a subagent. The UI collects
+  intent + refs; the prompt is composed upstream.
+- **CAD → generation**: tools/cad reads .dwg geometry (verified against Doreen St). Explore
+  plan-sheet-aware generation — renders of unbuilt work grounded in actual plan geometry —
+  as a candidate Media-workspace ability. Unproven; design for it as an optional module.
