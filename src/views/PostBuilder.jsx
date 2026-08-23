@@ -357,6 +357,8 @@ function Preview({ platform, placement, caption, refs, link }) {
 // (toggle include), beyond that it's a DRAG (live reorder; dragging an excluded
 // photo into the strip includes it at the drop position). First photo = cover.
 function PhotoStrip({ effRefs, allRefs, onToggle, onPlace, coverBadge = true }) {
+  // Drag = arrange (first photo IS the cover). Remove = explicit ✕. Excluded
+  // photos sit in their own labeled row below — nothing reflows under a click.
   const [dragging, setDragging] = useState(null);
   const st = React.useRef({ file: null, sx: 0, sy: 0, moved: false, last: null });
 
@@ -371,38 +373,46 @@ function PhotoStrip({ effRefs, allRefs, onToggle, onPlace, coverBadge = true }) 
     if (!d.moved) { d.moved = true; setDragging(d.file); }
     const el = document.elementsFromPoint(e.clientX, e.clientY).find(x => x.dataset?.photo && x.dataset.photo !== d.file);
     const target = el?.dataset.photo;
-    if (target && target !== d.last) {
-      d.last = target;
-      onPlace(d.file, target);   // place dragged file at target's position (includes if excluded)
-    }
+    if (target && target !== d.last) { d.last = target; onPlace(d.file, target); }
   };
-  const up = () => {
-    const d = st.current;
-    if (d.file && !d.moved) onToggle(d.file);
-    st.current = { file: null, sx: 0, sy: 0, moved: false, last: null };
-    setDragging(null);
-  };
+  const up = () => { st.current = { file: null, sx: 0, sy: 0, moved: false, last: null }; setDragging(null); };
 
+  const excluded = allRefs.filter(f => !effRefs.includes(f));
   return (
-    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} onPointerMove={move} onPointerUp={up} onPointerLeave={up}>
-      {[...effRefs, ...allRefs.filter(f => !effRefs.includes(f))].map(f => {
-        const inc = effRefs.includes(f);
-        const idx = effRefs.indexOf(f);
-        const isDrag = dragging === f;
-        return (
-          <div key={f} data-photo={f} onPointerDown={(e) => down(e, f)}
-            style={{ position: "relative", width: 74, height: 74, touchAction: "none", cursor: inc ? "grab" : "pointer",
-                     transform: isDrag ? "scale(1.08)" : "none", zIndex: isDrag ? 5 : 1, transition: isDrag ? "none" : "transform .12s" }}>
-            <img src={`/api/media/thumb?rel=${encodeURIComponent(f)}`} alt="" draggable={false} data-photo={f}
-              style={{ width: 74, height: 74, objectFit: "cover", borderRadius: 8, display: "block", pointerEvents: "none",
-                       border: inc ? `2px solid ${idx === 0 ? BRAND.focus : BRAND.border}` : `1px solid ${C.border}`,
-                       opacity: inc ? 1 : 0.35, filter: inc ? "none" : "grayscale(60%)",
-                       boxShadow: isDrag ? "0 6px 18px rgba(0,0,0,.5)" : "none" }} />
-            {coverBadge && inc && idx === 0 &&
-              <span style={{ position: "absolute", top: 2, left: 2, background: BRAND.focus, color: "#0C1017", fontSize: 9, fontWeight: 700, borderRadius: 4, padding: "1px 4px", pointerEvents: "none" }}>COVER</span>}
+    <div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} onPointerMove={move} onPointerUp={up} onPointerLeave={up}>
+        {effRefs.map((f, idx) => {
+          const isDrag = dragging === f;
+          return (
+            <div key={f} data-photo={f} onPointerDown={(e) => down(e, f)}
+              style={{ position: "relative", width: 74, height: 74, touchAction: "none", cursor: "grab",
+                       transform: isDrag ? "scale(1.08)" : "none", zIndex: isDrag ? 5 : 1, transition: isDrag ? "none" : "transform .12s" }}>
+              <img src={`/api/media/thumb?rel=${encodeURIComponent(f)}`} alt="" draggable={false} data-photo={f}
+                style={{ width: 74, height: 74, objectFit: "cover", borderRadius: 8, display: "block", pointerEvents: "none",
+                         border: `2px solid ${idx === 0 ? BRAND.focus : BRAND.border}`,
+                         boxShadow: isDrag ? "0 6px 18px rgba(0,0,0,.5)" : "none" }} />
+              {coverBadge && idx === 0 &&
+                <span style={{ position: "absolute", top: 2, left: 2, background: BRAND.focus, color: "#0C1017", fontSize: 9, fontWeight: 700, borderRadius: 4, padding: "1px 4px", pointerEvents: "none" }}>COVER</span>}
+              <button onPointerDown={(e) => e.stopPropagation()} onClick={() => onToggle(f)} title="Remove from this platform"
+                style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", border: `1px solid ${C.border}`,
+                         background: C.card, color: C.text, fontSize: 11, lineHeight: "15px", cursor: "pointer", padding: 0 }}>✕</button>
+            </div>
+          );
+        })}
+        {effRefs.length === 0 && <span style={{ fontSize: 12, color: C.dim }}>No photos on this platform.</span>}
+      </div>
+      {excluded.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>Not included — tap to add:</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {excluded.map(f => (
+              <img key={f} src={`/api/media/thumb?rel=${encodeURIComponent(f)}`} alt="" onClick={() => onToggle(f)}
+                style={{ width: 52, height: 52, objectFit: "cover", borderRadius: 6, cursor: "pointer",
+                         border: `1px dashed ${C.border}`, opacity: 0.45, filter: "grayscale(60%)" }} />
+            ))}
           </div>
-        );
-      })}
+        </div>
+      )}
     </div>
   );
 }
