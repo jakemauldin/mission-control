@@ -6,6 +6,7 @@ import { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useSearchParams } from "react-router-dom";
 import { C, BRAND } from "./lib/colors";
 import { useJobs, useHealth } from "./hooks/useLiveData";
+import { useFavicon } from "./hooks/useFavicon";
 
 import Brief from "./views/Brief";
 import Login from "./views/Login";
@@ -34,6 +35,7 @@ const NAV = [
 ];
 
 function Shell() {
+  useFavicon();
   const jobsData = useJobs();
   const healthData = useHealth();
   const [menu, setMenu] = useState(false);
