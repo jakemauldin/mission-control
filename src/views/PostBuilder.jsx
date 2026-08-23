@@ -357,50 +357,91 @@ function Preview({ platform, placement, caption, refs, link }) {
 // (toggle include), beyond that it's a DRAG (live reorder; dragging an excluded
 // photo into the strip includes it at the drop position). First photo = cover.
 function PhotoStrip({ effRefs, allRefs, onToggle, onPlace, coverBadge = true }) {
-  // Drag = arrange (first photo IS the cover). Remove = explicit ✕. Excluded
-  // photos sit in their own labeled row below — nothing reflows under a click.
-  const [dragging, setDragging] = useState(null);
-  const st = React.useRef({ file: null, sx: 0, sy: 0, moved: false, last: null });
+  // Polished drag: a GHOST thumb follows the pointer while the real item stays
+  // as a dashed placeholder, and siblings FLIP-animate into their new slots
+  // instead of teleporting. Tap never reorders; ✕ removes; excluded row adds.
+  const [drag, setDrag] = useState(null);           // { file, x, y, offX, offY }
+  const st = React.useRef({ file: null, sx: 0, sy: 0, moved: false, last: null, offX: 0, offY: 0 });
+  const boxRef = React.useRef(null);
+  const rectsRef = React.useRef(new Map());
+
+  // FLIP: after every reorder, animate each thumb from its previous rect.
+  React.useLayoutEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
+    const prev = rectsRef.current;
+    const next = new Map();
+    for (const el of box.querySelectorAll("[data-photo]")) {
+      const f = el.dataset.photo;
+      const r = el.getBoundingClientRect();
+      next.set(f, r);
+      const p = prev.get(f);
+      if (p && st.current.file !== f) {
+        const dx = p.left - r.left, dy = p.top - r.top;
+        if (dx || dy) {
+          el.style.transition = "none";
+          el.style.transform = `translate(${dx}px, ${dy}px)`;
+          requestAnimationFrame(() => {
+            el.style.transition = "transform .18s ease";
+            el.style.transform = "none";
+          });
+        }
+      }
+    }
+    rectsRef.current = next;
+  }, [effRefs]);
 
   const down = (e, f) => {
-    st.current = { file: f, sx: e.clientX, sy: e.clientY, moved: false, last: null };
+    const r = e.currentTarget.getBoundingClientRect();
+    st.current = { file: f, sx: e.clientX, sy: e.clientY, moved: false, last: null, offX: e.clientX - r.left, offY: e.clientY - r.top };
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
   const move = (e) => {
     const d = st.current;
     if (!d.file) return;
     if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6) return;
-    if (!d.moved) { d.moved = true; setDragging(d.file); }
+    d.moved = true;
+    setDrag({ file: d.file, x: e.clientX, y: e.clientY, offX: d.offX, offY: d.offY });
     const el = document.elementsFromPoint(e.clientX, e.clientY).find(x => x.dataset?.photo && x.dataset.photo !== d.file);
     const target = el?.dataset.photo;
     if (target && target !== d.last) { d.last = target; onPlace(d.file, target); }
   };
-  const up = () => { st.current = { file: null, sx: 0, sy: 0, moved: false, last: null }; setDragging(null); };
+  const up = () => {
+    st.current = { file: null, sx: 0, sy: 0, moved: false, last: null, offX: 0, offY: 0 };
+    setDrag(null);
+  };
 
   const excluded = allRefs.filter(f => !effRefs.includes(f));
   return (
     <div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} onPointerMove={move} onPointerUp={up} onPointerLeave={up}>
+      <div ref={boxRef} style={{ display: "flex", gap: 6, flexWrap: "wrap" }} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
         {effRefs.map((f, idx) => {
-          const isDrag = dragging === f;
+          const isDrag = drag?.file === f;
           return (
             <div key={f} data-photo={f} onPointerDown={(e) => down(e, f)}
-              style={{ position: "relative", width: 74, height: 74, touchAction: "none", cursor: "grab",
-                       transform: isDrag ? "scale(1.08)" : "none", zIndex: isDrag ? 5 : 1, transition: isDrag ? "none" : "transform .12s" }}>
+              style={{ position: "relative", width: 74, height: 74, touchAction: "none", cursor: "grab" }}>
               <img src={`/api/media/thumb?rel=${encodeURIComponent(f)}`} alt="" draggable={false} data-photo={f}
                 style={{ width: 74, height: 74, objectFit: "cover", borderRadius: 8, display: "block", pointerEvents: "none",
-                         border: `2px solid ${idx === 0 ? BRAND.focus : BRAND.border}`,
-                         boxShadow: isDrag ? "0 6px 18px rgba(0,0,0,.5)" : "none" }} />
-              {coverBadge && idx === 0 &&
+                         border: isDrag ? `2px dashed ${C.border}` : `2px solid ${idx === 0 ? BRAND.focus : BRAND.border}`,
+                         opacity: isDrag ? 0.25 : 1 }} />
+              {coverBadge && idx === 0 && !isDrag &&
                 <span style={{ position: "absolute", top: 2, left: 2, background: BRAND.focus, color: "#0C1017", fontSize: 9, fontWeight: 700, borderRadius: 4, padding: "1px 4px", pointerEvents: "none" }}>COVER</span>}
-              <button onPointerDown={(e) => e.stopPropagation()} onClick={() => onToggle(f)} title="Remove from this platform"
-                style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", border: `1px solid ${C.border}`,
-                         background: C.card, color: C.text, fontSize: 11, lineHeight: "15px", cursor: "pointer", padding: 0 }}>✕</button>
+              {!drag &&
+                <button onPointerDown={(e) => e.stopPropagation()} onClick={() => onToggle(f)} title="Remove from this platform"
+                  style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", border: `1px solid ${C.border}`,
+                           background: C.card, color: C.text, fontSize: 11, lineHeight: "15px", cursor: "pointer", padding: 0 }}>✕</button>}
             </div>
           );
         })}
         {effRefs.length === 0 && <span style={{ fontSize: 12, color: C.dim }}>No photos on this platform.</span>}
       </div>
+      {drag && (
+        <img src={`/api/media/thumb?rel=${encodeURIComponent(drag.file)}`} alt=""
+          style={{ position: "fixed", left: drag.x - drag.offX, top: drag.y - drag.offY, width: 74, height: 74,
+                   objectFit: "cover", borderRadius: 8, pointerEvents: "none", zIndex: 1000,
+                   transform: "scale(1.1) rotate(2deg)", boxShadow: "0 10px 24px rgba(0,0,0,.55)",
+                   border: `2px solid ${BRAND.focus}` }} />
+      )}
       {excluded.length > 0 && (
         <div style={{ marginTop: 8 }}>
           <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>Not included — tap to add:</div>
