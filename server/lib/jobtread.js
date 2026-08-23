@@ -77,8 +77,10 @@ export async function getJobDetail(jobId) {
   const costItems = costResult.data?.job?.costItems?.nodes || [];
   let nextPage = costResult.data?.job?.costItems?.nextPage;
 
-  // Paginate if more cost items exist
-  while (nextPage) {
+  // Paginate if more cost items exist. Hard cap: a bad nextPage cursor from the API
+  // would otherwise loop forever (50 pages x 100 items is far beyond any real job).
+  let pages = 0;
+  while (nextPage && ++pages <= 50) {
     const more = await queryJobTread({
       job: {
         $: { id: jobId },

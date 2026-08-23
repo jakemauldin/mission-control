@@ -22,3 +22,13 @@ export const inn = {
   borderRadius: 12,
   padding: 14,
 };
+
+// Rising Creek dark-surface ramp derived from rc-brand-config.json's #635500 anchor
+// (which fails contrast on dark cards at 2.57:1 — DESIGN.md §8). New surfaces use
+// these; existing views keep their inline styles until touched for another reason.
+export const BRAND = {
+  border: "#8A7A12",   // 4.42:1 — borders + large text only
+  accent: "#A8952B",   // 6.35:1 — default accent
+  link:   "#C2AC3D",   // 8.4:1  — links + emphasis
+  focus:  "#D6C255",   // 10.6:1 — hover + focus ring
+};

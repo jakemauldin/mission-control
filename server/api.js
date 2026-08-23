@@ -1,9 +1,11 @@
 import express from "express";
-import cors from "cors";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
-import { readdirSync, readFileSync } from "fs";
+import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
+import { requireAuth, checkPassphrase, makeSessionCookie, clearSessionCookie, validSession } from "./lib/auth.js";
+import { buildBrief, snoozeItem } from "./lib/brief.js";
+import { listRfiJobs, getRfi, mediaCounts } from "./lib/rfis.js";
 import { homedir } from "os";
 import { execDocker, execDockerJSON } from "./lib/docker.js";
 import { getJobs, getJobDetail } from "./lib/jobtread.js";
@@ -26,8 +28,24 @@ const app = express();
 const server = createServer(app);
 const PORT = process.env.PORT || 3080;
 
-app.use(cors());
 app.use(express.json());
+
+// ── Auth (DESIGN.md §7) ──────────────────────────────────────
+// Everything under /api requires a session except login and a minimal probe.
+app.post("/api/login", (req, res) => {
+  if (!checkPassphrase(req.body?.passphrase)) {
+    return res.status(401).json({ ok: false, error: "wrong passphrase" });
+  }
+  res.setHeader("Set-Cookie", makeSessionCookie());
+  res.json({ ok: true });
+});
+app.post("/api/logout", (_req, res) => {
+  res.setHeader("Set-Cookie", clearSessionCookie());
+  res.json({ ok: true });
+});
+// Status word only — no file contents, no versions. Safe unauthenticated.
+app.get("/api/health/probe", (_req, res) => res.json({ ok: true }));
+app.use("/api", requireAuth);
 
 // ── Projects: per-project running to-do w/ progress dates (2026-08-16) ──
 // Store: ~/services/projects/projects.json (+ IN-FLIGHT.md headings/plate, read-only).
@@ -148,8 +166,14 @@ app.post("/api/claw/dispatch", async (req, res) => {
   if (!command || typeof command !== "string") {
     return res.status(400).json({ ok: false, error: "command is required" });
   }
-  // Sanitize: allow only safe characters
-  const sanitized = command.replace(/[^a-zA-Z0-9 _\-.,/'"@#:=]/g, "");
+  // Allowlist of subcommands (DESIGN.md §7). The old character denylist blocked shell
+  // metacharacters but happily forwarded `openclaw config set ...` — auth says who may
+  // call this, the allowlist says what it can do. Both are required.
+  const ALLOWED = ["status", "health", "logs", "agents list", "mcp list", "cron list"];
+  const sanitized = command.replace(/[^a-zA-Z0-9 _\-.,/'"@#:=]/g, "").trim();
+  if (!ALLOWED.some((a) => sanitized === a || sanitized.startsWith(a + " "))) {
+    return res.status(403).json({ ok: false, error: `subcommand not in allowlist: ${ALLOWED.join(", ")}` });
+  }
   const result = await execDocker(`openclaw ${sanitized}`, { cacheMs: 0 });
   if (!result.ok) {
     return res.json({ ok: false, error: result.error });
@@ -217,7 +241,8 @@ app.post("/api/billing/jobs/:id/apps", (req, res) => {
 // Update application line items
 app.put("/api/billing/jobs/:id/apps/:num", (req, res) => {
   try {
-    const num = parseInt(req.params.num);
+    const num = parseInt(req.params.num, 10);
+    if (Number.isNaN(num)) throw new Error("application number must be an integer");
     const app = updateApplication(req.params.id, num, req.body.lineItems);
     res.json({ ok: true, data: app });
   } catch (err) {
@@ -228,7 +253,8 @@ app.put("/api/billing/jobs/:id/apps/:num", (req, res) => {
 // Update application metadata (periodTo, etc.)
 app.patch("/api/billing/jobs/:id/apps/:num", (req, res) => {
   try {
-    const num = parseInt(req.params.num);
+    const num = parseInt(req.params.num, 10);
+    if (Number.isNaN(num)) throw new Error("application number must be an integer");
     const app = updateApplicationMeta(req.params.id, num, req.body);
     res.json({ ok: true, data: app });
   } catch (err) {
@@ -239,7 +265,8 @@ app.patch("/api/billing/jobs/:id/apps/:num", (req, res) => {
 // Finalize application
 app.post("/api/billing/jobs/:id/apps/:num/finalize", (req, res) => {
   try {
-    const num = parseInt(req.params.num);
+    const num = parseInt(req.params.num, 10);
+    if (Number.isNaN(num)) throw new Error("application number must be an integer");
     const app = finalizeApplication(req.params.id, num);
     res.json({ ok: true, data: app });
   } catch (err) {
@@ -251,7 +278,8 @@ app.post("/api/billing/jobs/:id/apps/:num/finalize", (req, res) => {
 async function handlePdfGeneration(req, res) {
   try {
     const jobId = req.params.id;
-    const num = parseInt(req.params.num);
+    const num = parseInt(req.params.num, 10);
+    if (Number.isNaN(num)) throw new Error("application number must be an integer");
     const type = req.params.type || "combined";
 
     // Fetch current SOV from JT
@@ -300,7 +328,8 @@ app.get("/api/billing/jobs/:id/apps/:num/pdf", handlePdfGeneration);
 app.post("/api/billing/jobs/:id/apps/:num/calculate", async (req, res) => {
   try {
     const jobId = req.params.id;
-    const num = parseInt(req.params.num);
+    const num = parseInt(req.params.num, 10);
+    if (Number.isNaN(num)) throw new Error("application number must be an integer");
 
     const sov = await fetchScheduleOfValues(jobId, getJobDetail);
     const billing = loadJobBilling(jobId);
@@ -318,6 +347,31 @@ app.post("/api/billing/jobs/:id/apps/:num/calculate", async (req, res) => {
   } catch (err) {
     res.json({ ok: false, error: err.message });
   }
+});
+
+// ── Brief (home action queue, DESIGN.md §2) ──────────────────
+app.get("/api/brief", async (_req, res) => {
+  try { res.json({ ok: true, data: await buildBrief() }); }
+  catch (e) { res.json({ ok: false, fallback: true, error: e.message }); }
+});
+app.post("/api/brief/snooze", (req, res) => {
+  const { key, until } = req.body || {};
+  if (!key || !until) return res.status(400).json({ ok: false, error: "key and until required" });
+  try { res.json({ ok: true, data: snoozeItem(key, until) }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+// ── RFIs (read-only, DESIGN.md §4) + media counts ────────────
+app.get("/api/rfis", (_req, res) => {
+  try { res.json({ ok: true, data: listRfiJobs() }); } catch (e) { res.json({ ok: false, error: e.message }); }
+});
+app.get("/api/rfis/:jobId", (req, res) => {
+  const rfi = getRfi(req.params.jobId);
+  if (!rfi) return res.status(404).json({ ok: false, error: "no rfi.json for that job" });
+  res.json({ ok: true, data: rfi });
+});
+app.get("/api/media/counts", (_req, res) => {
+  try { res.json({ ok: true, data: mediaCounts() }); } catch (e) { res.json({ ok: false, error: e.message }); }
 });
 
 // ── AP workflow (Path A) — proxy to integration-api ──────────
@@ -375,7 +429,12 @@ app.get("/api/offmarket", proxyLand("/offmarket"));  // off-market motivated-own
 app.get("/api/foreclosures", proxyLand("/foreclosures")); // distress pipeline (RealEstateAPI)
 
 // ── WebSocket for real-time push ─────────────────────────────
-const wss = new WebSocketServer({ server, path: "/ws" });
+const wss = new WebSocketServer({
+  server,
+  path: "/ws",
+  // Same session cookie as /api — an unauthenticated socket gets no push data.
+  verifyClient: ({ req }) => validSession(req.headers.cookie),
+});
 const clients = new Set();
 
 wss.on("connection", (ws) => {
@@ -423,6 +482,16 @@ setInterval(async () => {
     // Silently ignore — health logs may not exist
   }
 }, 30_000);
+
+// ── Static build (DESIGN.md §7: one process serves dist/ + /api + /ws) ──
+const DIST = join(import.meta.dirname, "..", "dist");
+if (existsSync(DIST)) {
+  app.use(express.static(DIST));
+  // SPA fallback: any non-API GET serves index.html so react-router owns the URL.
+  app.get(/^\/(?!api\/|ws$).*/, (_req, res) => res.sendFile(join(DIST, "index.html")));
+} else {
+  console.warn("⚠ dist/ not built — API-only mode (run `npm run build`)");
+}
 
 // ── Start ────────────────────────────────────────────────────
 server.listen(PORT, () => {

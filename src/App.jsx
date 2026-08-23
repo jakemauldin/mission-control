@@ -1,163 +1,123 @@
-import { useState, useEffect, useCallback } from "react";
-import { C } from "./lib/colors";
-import { STATIONS, AGENTS_INIT } from "./lib/seed-data";
-import { useJobs, useCrons, useHealth, useClawStatus, useInsights, useExpertise, useIntelligence } from "./hooks/useLiveData";
-import { useWebSocket } from "./hooks/useWebSocket";
+// Mission Control shell (DESIGN.md §1). react-router owns the URL; the old flat
+// view-string switch and the 600ms agent simulation are gone. Five nav items:
+// Brief, Money, Media, RFIs, Jobs. Systems is reached through the header status
+// dot; Projects and Land live in the overflow menu.
+import { useState, useEffect } from "react";
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useSearchParams } from "react-router-dom";
+import { C, BRAND } from "./lib/colors";
+import { useJobs, useHealth } from "./hooks/useLiveData";
 
-import Header from "./components/Header";
-import DetailPanel from "./components/DetailPanel";
-import Timeline from "./components/Timeline";
-
-import SitePlan from "./views/SitePlan";
-import SystemsView from "./views/Systems";
+import Brief from "./views/Brief";
+import Login from "./views/Login";
+import Media from "./views/Media";
+import { RfiIndex, RfiJob } from "./views/RFIs";
 import JobsView from "./views/Jobs";
-import CrewView from "./views/Crew";
-import CostsView from "./views/Costs";
-import IntelligenceView from "./views/Intelligence";
-import ExpertiseView from "./views/Expertise";
-import RoadmapView from "./views/Roadmap";
-import ProjectsView from "./views/Projects";
 import BillingView from "./views/Billing";
 import OpenBillsView from "./views/OpenBills";
+import ProjectsView from "./views/Projects";
 import LandFinderView from "./views/LandFinder";
+import SystemsView from "./views/Systems";
+import ExpertiseView from "./views/Expertise";
 
-export default function App() {
-  const [view, setView] = useState("site");
-  const [agents] = useState(AGENTS_INIT);
-  const [pos, setPos] = useState({});
-  const [selAgent, setSelAgent] = useState(AGENTS_INIT[0]);
-  const [buildProg, setBuildProg] = useState(52);
-  const [timeline, setTimeline] = useState([]);
-  const [time, setTime] = useState(new Date());
-  const [paused, setPaused] = useState(false);
+function BriefRoute() {
+  const [sp] = useSearchParams();
+  return <Brief showAll={sp.get("all") === "1"} />;
+}
 
-  // ── Live data hooks ──────────────────────────────────────
+const NAV = [
+  { to: "/", label: "Brief", end: true },
+  { to: "/money/pay-apps", label: "Money" },
+  { to: "/media", label: "Media" },
+  { to: "/rfis", label: "RFIs" },
+  { to: "/jobs", label: "Jobs" },
+];
+
+function Shell() {
   const jobsData = useJobs();
-  const cronsData = useCrons();
   const healthData = useHealth();
-  const clawStatus = useClawStatus();
-  const insights = useInsights();
-  const expertise = useExpertise();
-  const intelligence = useIntelligence();
-  const ws = useWebSocket();
+  const [menu, setMenu] = useState(false);
 
-  // ── WebSocket → timeline push ────────────────────────────
-  useEffect(() => {
-    if (!ws.lastMessage) return;
-    const msg = ws.lastMessage;
-    if (msg.type === "claw_update" || msg.type === "health_update") {
-      addTL(`[Live] ${msg.type.replace("_", " ")} received`, "info");
-    }
-  }, [ws.lastMessage]);
+  // Status dot IS the Systems entry point (§1).
+  const healthText = typeof healthData.data === "string" ? healthData.data : "";
+  const red = /STATUS:\s*RED/i.test(healthText);
+  const yellow = /STATUS:\s*YELLOW/i.test(healthText);
+  const dot = red ? "#f87171" : yellow ? "#facc15" : "#4ade80";
 
-  // Clock tick
-  useEffect(() => {
-    const t = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
-
-  // Initialize agent positions
-  useEffect(() => {
-    const p = {};
-    AGENTS_INIT.forEach((a) => {
-      const st = STATIONS.find((s) => s.id === a.home);
-      if (st) {
-        const ox = (Math.random() - 0.5) * 6;
-        p[a.id] = { x: st.x + ox, y: st.y + Math.random() * 2 - 1, tx: null, ty: null, facing: ox > 0 ? "right" : "left", station: a.home, pi: 0 };
-      }
-    });
-    setPos(p);
-  }, []);
-
-  // Agent movement simulation
-  useEffect(() => {
-    if (paused) return;
-    const iv = setInterval(() => {
-      setBuildProg((p) => Math.min(100, p + AGENTS_INIT.filter((a) => a.status === "active").length * 0.012));
-      setPos((prev) => {
-        const next = { ...prev };
-        AGENTS_INIT.forEach((a) => {
-          const p = next[a.id];
-          if (!p) return;
-          if (p.tx === null && Math.random() < 0.02) {
-            const ni = (p.pi + 1) % a.patrol.length;
-            const destId = a.patrol[ni];
-            const dest = STATIONS.find((s) => s.id === destId);
-            if (dest) {
-              const tx = dest.x + (Math.random() - 0.5) * 6;
-              next[a.id] = { ...p, tx, ty: dest.y + Math.random() * 2 - 1, facing: tx > p.x ? "right" : "left", station: destId, pi: ni };
-            }
-          }
-          if (p.tx !== null) {
-            const dx = p.tx - p.x;
-            const dy = p.ty - p.y;
-            const d = Math.sqrt(dx * dx + dy * dy);
-            if (d < 0.3) next[a.id] = { ...p, x: p.tx, y: p.ty, tx: null, ty: null };
-            else next[a.id] = { ...p, x: p.x + (dx / d) * 0.25, y: p.y + (dy / d) * 0.25, facing: dx > 0 ? "right" : "left" };
-          }
-        });
-        return next;
-      });
-    }, 600);
-    return () => clearInterval(iv);
-  }, [paused]);
-
-  const addTL = useCallback((msg, type = "action") => {
-    setTimeline((prev) => [
-      { t: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }), msg, type },
-      ...prev.slice(0, 49),
-    ]);
-  }, []);
-
-  const handleDispatch = (cmd) => {
-    if (typeof cmd === "string" && cmd.trim()) {
-      addTL(`Dispatched: "${cmd}"`);
-    }
-  };
-
-  const handleRunCron = (id) => {
-    const c = cronsData.crons?.find((c) => c.id === id);
-    addTL(`Running: ${c?.name || id}`);
-  };
-
-  // Count live sources for header
-  const liveCount = [jobsData.live, cronsData.live, healthData.live, clawStatus.live, insights.live].filter(Boolean).length;
+  const navStyle = ({ isActive }) => ({
+    padding: "8px 14px", borderRadius: 8, fontSize: 14, textDecoration: "none",
+    fontWeight: isActive ? 700 : 500,
+    color: isActive ? BRAND.focus : C.text,
+    background: isActive ? C.card : "transparent",
+    border: `1px solid ${isActive ? BRAND.border : "transparent"}`,
+  });
 
   return (
-    <div className="w-full min-h-screen" style={{ background: `radial-gradient(ellipse at top,#1E293B,${C.bg} 55%)`, color: C.text, fontFamily: "'IBM Plex Sans',-apple-system,sans-serif" }}>
-      <div className="max-w-[1700px] mx-auto px-4 py-4 md:px-5 flex flex-col gap-4">
-        <Header
-          view={view} setView={setView}
-          handleDispatch={handleDispatch} agents={agents} time={time}
-          wsConnected={ws.connected} liveCount={liveCount}
-          healthData={healthData} clawStatus={clawStatus}
-          jobCount={jobsData.jobs?.length ?? null}
-        />
-
-        {/* Main grid — mobile: stacked, desktop: 2-col */}
-        <div className="flex flex-col lg:grid lg:grid-cols-[1.4fr_0.6fr] gap-4">
-          <div className="flex flex-col gap-4">
-            {view === "site" && <SitePlan agents={agents} pos={pos} selAgent={selAgent} setSelAgent={setSelAgent} buildProg={buildProg} paused={paused} setPaused={setPaused} liveCount={liveCount} healthData={healthData} />}
-            {view === "systems" && <SystemsView crons={cronsData.crons} handleRunCron={handleRunCron} healthData={healthData} cronsLive={cronsData.live} />}
-            {view === "jobs" && <JobsView jobs={jobsData.jobs} live={jobsData.live} loading={jobsData.loading} />}
-            {view === "billing" && <BillingView jobs={jobsData.jobs} />}
-            {view === "bills" && <OpenBillsView jobs={jobsData.jobs} />}
-            {view === "crew" && <CrewView agents={agents} selAgent={selAgent} setSelAgent={setSelAgent} />}
-            {view === "costs" && <CostsView />}
-            {view === "intel" && <IntelligenceView insights={insights} intelligence={intelligence} clawStatus={clawStatus} />}
-            {view === "expertise" && <ExpertiseView expertise={expertise} />}
-            {view === "land" && <LandFinderView />}
-            {view === "roadmap" && <RoadmapView />}
-            {view === "projects" && <ProjectsView />}
+    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'IBM Plex Sans',-apple-system,sans-serif" }}>
+      <div style={{ maxWidth: 1500, margin: "0 auto", padding: "16px 18px" }}>
+        <header style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
+          <NavLink to="/systems" title="Systems" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
+            <span style={{ width: 10, height: 10, borderRadius: "50%", background: dot, boxShadow: `0 0 8px ${dot}` }} />
+          </NavLink>
+          <div style={{ fontWeight: 700, fontSize: 15, color: C.bright, marginRight: 8 }}>Rising Creek</div>
+          <nav style={{ display: "flex", gap: 4, flexWrap: "wrap", flex: 1 }}>
+            {NAV.map(n => <NavLink key={n.to} to={n.to} end={n.end} style={navStyle}>{n.label}</NavLink>)}
+          </nav>
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setMenu(m => !m)} style={{ background: "none", border: `1px solid ${C.border}`, color: C.dim, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>⋯</button>
+            {menu && (
+              <div onClick={() => setMenu(false)} style={{ position: "absolute", right: 0, top: 38, background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 6, zIndex: 50, minWidth: 150 }}>
+                {[["/projects", "Projects"], ["/land", "Land"], ["/money/bills", "Bills"], ["/systems", "Systems"], ["/expertise", "Expertise"]].map(([to, label]) => (
+                  <NavLink key={to} to={to} style={{ display: "block", padding: "8px 12px", color: C.text, textDecoration: "none", fontSize: 13, borderRadius: 6 }}>{label}</NavLink>
+                ))}
+                <button onClick={() => fetch("/api/logout", { method: "POST" }).then(() => window.location.href = "/login")}
+                  style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: "none", border: "none", color: C.dim, fontSize: 13, cursor: "pointer" }}>Sign out</button>
+              </div>
+            )}
           </div>
+        </header>
 
-          {/* Right column */}
-          <div className="flex flex-col gap-4">
-            <DetailPanel selAgent={selAgent} pos={pos} clawStatus={clawStatus} />
-            <Timeline timeline={timeline} wsConnected={ws.connected} />
-          </div>
-        </div>
+        <Routes>
+          <Route path="/" element={<BriefRoute />} />
+          <Route path="/jobs" element={<JobsView jobs={jobsData.jobs} live={jobsData.live} loading={jobsData.loading} />} />
+          <Route path="/money" element={<Navigate to="/money/pay-apps" replace />} />
+          <Route path="/money/pay-apps/*" element={<BillingView jobs={jobsData.jobs} />} />
+          <Route path="/money/bills" element={<OpenBillsView jobs={jobsData.jobs} />} />
+          <Route path="/rfis" element={<RfiIndex />} />
+          <Route path="/rfis/:jobId" element={<RfiJob />} />
+          <Route path="/media" element={<Media />} />
+          <Route path="/systems" element={<SystemsWrap healthData={healthData} />} />
+          <Route path="/projects" element={<ProjectsView />} />
+          <Route path="/land" element={<LandFinderView />} />
+          <Route path="/expertise" element={<ExpertiseWrap />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </div>
     </div>
+  );
+}
+
+// Legacy view adapters — keep their internals untouched (DESIGN.md §9).
+function SystemsWrap({ healthData }) {
+  return <SystemsView crons={[]} handleRunCron={() => {}} healthData={healthData} cronsLive={false} />;
+}
+function ExpertiseWrap() {
+  const [exp, setExp] = useState({ live: false, data: null });
+  useEffect(() => { fetch("/api/expertise").then(r => r.json()).then(d => setExp({ live: d.ok, data: d.data })).catch(() => {}); }, []);
+  return <ExpertiseView expertise={exp} />;
+}
+
+export default function App() {
+  // Auth gate: one probe against a real authed endpoint decides Login vs Shell.
+  const [authed, setAuthed] = useState(null);
+  useEffect(() => {
+    fetch("/api/projects").then(r => setAuthed(r.status !== 401)).catch(() => setAuthed(true));
+  }, []);
+  if (authed === null) return null;
+  return (
+    <BrowserRouter>
+      {authed
+        ? <Routes><Route path="/login" element={<Navigate to="/" replace />} /><Route path="*" element={<Shell />} /></Routes>
+        : <Routes><Route path="*" element={<Login />} /></Routes>}
+    </BrowserRouter>
   );
 }
