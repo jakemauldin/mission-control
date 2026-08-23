@@ -459,9 +459,14 @@ export default function PostBuilder() {
   const editRefs = (fn) => setRefsByPlatform(o => ({ ...o, [tab]: fn([...(o[tab] ?? refs)]) }));
   const togglePhoto = (f) => editRefs(l => l.includes(f) ? l.filter(x => x !== f) : [...l, f]);
   const placePhoto = (f, target) => editRefs(l => {
+    // Direction-aware: dragging RIGHT (item was before the target) must land
+    // AFTER the target — inserting before it recreates the same order (the
+    // "middle photo won't move right" bug). Dragging left inserts before.
+    const from = l.indexOf(f);
     const without = l.filter(x => x !== f);
-    const ti = without.indexOf(target);
+    let ti = without.indexOf(target);
     if (ti < 0) return l.includes(f) ? l : [...l, f];
+    if (from >= 0 && from <= l.indexOf(target)) ti += 1;
     without.splice(ti, 0, f);
     return without;
   });
