@@ -28,6 +28,7 @@ function lint(text, platform) {
   if (platform === "x" && text.length > 280) warns.push(`X hard limit: ${text.length}/280 — this will not post.`);
   if (platform === "gbp" && /#\w/.test(text)) warns.push("GBP ignores hashtags — they read as clutter there.");
   if (platform === "instagram" && !/#\w/.test(text)) warns.push("Instagram reach benefits from 3-5 tags.");
+  if (platform === "instagram" && /https?:\/\//.test(text)) warns.push("Links are NOT clickable in Instagram captions — it renders as plain text. Use link-in-bio.");
   return warns;
 }
 
@@ -59,8 +60,31 @@ function Caption({ text, trunc, dark }) {
   );
 }
 
+function LinkCard({ link, aspect, dark }) {
+  if (!link) return null;
+  const strip = { padding: "8px 12px", background: dark ? "#16181c" : "#f0f2f5", borderTop: dark ? "1px solid #2f3336" : "1px solid #ddd" };
+  return (
+    <div style={{ border: dark ? "1px solid #2f3336" : "1px solid #ddd", borderRadius: dark ? 14 : 0, overflow: "hidden" }}>
+      {link.image
+        ? <img src={link.image} alt="" style={{ width: "100%", aspectRatio: aspect, objectFit: "cover", display: "block" }} />
+        : <div style={{ aspectRatio: aspect, background: dark ? "#202327" : "#e4e6eb", display: "grid", placeItems: "center" }}>
+            <img src={link.icon} alt="" style={{ width: 48, height: 48 }} onError={e => { e.target.style.display = "none"; }} /></div>}
+      <div style={strip}>
+        <div style={{ fontSize: 11, color: dark ? "#71767b" : "#65676b", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 5 }}>
+          <img src={link.icon} alt="" style={{ width: 14, height: 14, borderRadius: 3 }} onError={e => { e.target.style.display = "none"; }} />
+          {link.domain}
+        </div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: dark ? "#e7e9ea" : "#050505", lineHeight: 1.25, marginTop: 2 }}>{link.title}</div>
+        {link.description && <div style={{ fontSize: 12, color: dark ? "#71767b" : "#65676b", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{link.description}</div>}
+      </div>
+    </div>
+  );
+}
+
 // ── faithful feed cards. Light platforms render light — that IS the preview. ──
-function Preview({ platform, caption, refs }) {
+// Link rule mirrors reality: FB / X / LinkedIn show a link card ONLY when no
+// photos are attached (attached media wins and the URL stays plain text).
+function Preview({ platform, caption, refs, link }) {
   const P = PLATFORMS[platform];
   const light = { background: "#fff", color: "#050505", borderRadius: 10, overflow: "hidden", maxWidth: 420, fontFamily: "Helvetica,Arial,sans-serif", border: "1px solid #d9d9d9" };
   const head = (name, sub, round = true) => (
@@ -79,7 +103,7 @@ function Preview({ platform, caption, refs }) {
     <div style={light}>
       {head(NAME, "Just now · 🌐")}
       <div style={{ padding: "0 12px 10px", fontSize: 14, lineHeight: 1.35 }}><Caption text={caption} trunc={P.trunc} /></div>
-      <Media refs={refs} aspect={P.aspect} />
+      {refs.length === 0 && link ? <LinkCard link={link} aspect="1.91/1" /> : <Media refs={refs} aspect={P.aspect} />}
       {bar(["👍 Like", "💬 Comment", "↗ Share"])}
     </div>
   );
@@ -96,7 +120,9 @@ function Preview({ platform, caption, refs }) {
     <div style={{ ...light, background: "#000", color: "#e7e9ea", border: "1px solid #2f3336" }}>
       {head(NAME, `${P.handle} · now`)}
       <div style={{ padding: "0 12px 10px", fontSize: 15, lineHeight: 1.35 }}><Caption text={caption} trunc={280} dark /></div>
-      <div style={{ margin: "0 12px 10px", borderRadius: 14, overflow: "hidden", border: "1px solid #2f3336" }}><Media refs={refs} aspect={P.aspect} /></div>
+      {refs.length === 0 && link
+        ? <div style={{ margin: "0 12px 10px" }}><LinkCard link={link} aspect="16/9" dark /></div>
+        : <div style={{ margin: "0 12px 10px", borderRadius: 14, overflow: "hidden", border: "1px solid #2f3336" }}><Media refs={refs} aspect={P.aspect} /></div>}
       {bar(["💬 12", "🔁 4", "♡ 32", "📊 1.2K"], "#71767b")}
     </div>
   );
@@ -105,7 +131,10 @@ function Preview({ platform, caption, refs }) {
       <Media refs={refs} aspect={P.aspect} single />
       {head(NAME, new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }))}
       <div style={{ padding: "0 12px 10px", fontSize: 14, lineHeight: 1.4 }}><Caption text={caption} trunc={P.trunc} /></div>
-      <div style={{ padding: "0 12px 12px" }}><span style={{ color: "#1a73e8", fontSize: 14, fontWeight: 500 }}>Learn more</span></div>
+      <div style={{ padding: "0 12px 12px", display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ color: "#1a73e8", fontSize: 14, fontWeight: 500 }}>Learn more</span>
+        {link && <span style={{ fontSize: 11, color: "#5f6368" }}>→ {link.domain}</span>}
+      </div>
     </div>
   );
   if (platform === "pinterest") return (
@@ -114,6 +143,8 @@ function Preview({ platform, caption, refs }) {
       <div style={{ padding: "10px 12px", fontSize: 14, fontWeight: 600 }}><Caption text={caption.split("\n")[0]} trunc={P.trunc} /></div>
       <div style={{ padding: "0 12px 12px", fontSize: 12, color: "#5f5f5f", display: "flex", gap: 6, alignItems: "center" }}>
         <img src={AVATAR} alt="" style={{ width: 22, height: 22, borderRadius: "50%" }} /> {NAME}
+        {link && <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
+          <img src={link.icon} alt="" style={{ width: 12, height: 12 }} onError={e => { e.target.style.display = "none"; }} />{link.domain}</span>}
       </div>
     </div>
   );
@@ -122,7 +153,7 @@ function Preview({ platform, caption, refs }) {
     <div style={light}>
       {head(NAME, "Commercial construction · Now", false)}
       <div style={{ padding: "0 12px 10px", fontSize: 14, lineHeight: 1.4 }}><Caption text={caption} trunc={P.trunc} /></div>
-      <Media refs={refs} aspect={P.aspect} />
+      {refs.length === 0 && link ? <LinkCard link={link} aspect="1.91/1" /> : <Media refs={refs} aspect={P.aspect} />}
       {bar(["👍 Like", "💬 Comment", "🔁 Repost", "➤ Send"])}
     </div>
   );
@@ -139,12 +170,25 @@ export default function PostBuilder() {
   const [ideas, setIdeas] = useState(null);        // null = never asked, [] = loading
   const [sugId, setSugId] = useState(null);
   const [usedIdea, setUsedIdea] = useState(null);  // {angle} for the queue-time feedback loop
+  const [unfurls, setUnfurls] = useState({});      // url -> og data (or false = failed)
 
   useEffect(() => { fetch("/api/media/recent?bucket=postable&n=36").then(r => r.json()).then(d => setRecent(d.data || [])).catch(() => {}); }, []);
 
   const text = overrides[tab] ?? caption;
   const P = PLATFORMS[tab];
   const warns = lint(text, tab);
+  const urlInText = (text.match(/https?:\/\/[^\s]+/) || [null])[0];
+  useEffect(() => {
+    if (!urlInText || unfurls[urlInText] !== undefined) return;
+    const t = setTimeout(() => {
+      fetch(`/api/media/unfurl?url=${encodeURIComponent(urlInText)}`)
+        .then(r => r.json())
+        .then(d => setUnfurls(u => ({ ...u, [urlInText]: d.ok ? d.data : false })))
+        .catch(() => setUnfurls(u => ({ ...u, [urlInText]: false })));
+    }, 600);
+    return () => clearTimeout(t);
+  }, [urlInText, unfurls]);
+  const link = urlInText ? (unfurls[urlInText] || null) : null;
   const activePlatforms = Object.keys(on).filter(k => on[k]);
 
   const suggest = async () => {
@@ -261,7 +305,7 @@ export default function PostBuilder() {
           </div>
           {activePlatforms.length === 0 ? <div style={{ color: C.dim, fontSize: 13 }}>Pick at least one platform.</div> : (
             <>
-              <Preview platform={tab} caption={text} refs={refs} />
+              <Preview platform={tab} caption={text} refs={refs} link={link} />
               <div style={{ marginTop: 10, fontSize: 12, color: text.length > P.cap ? "#D96C5C" : C.dim }}>
                 {text.length}/{P.cap} characters · preferred image {P.aspect.replace("/", ":")}
                 {(overrides[tab] !== undefined) && <button onClick={() => setOverrides(o => { const n = { ...o }; delete n[tab]; return n; })}

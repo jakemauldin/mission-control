@@ -10,6 +10,7 @@ import { systemsOutcomes } from "./lib/systems.js";
 import { createGenRequest, listGenRequests } from "./lib/gen.js";
 import { createPost, listPosts } from "./lib/posts.js";
 import { suggestPosts, recordSuggestionFeedback } from "./lib/suggest.js";
+import { unfurl } from "./lib/unfurl.js";
 import chokidar from "chokidar";
 import { homedir } from "os";
 import { execDocker, execDockerJSON } from "./lib/docker.js";
@@ -438,6 +439,11 @@ app.post("/api/media/suggest", async (_req, res) => {
 app.post("/api/media/suggest/feedback", (req, res) => {
   try { res.json({ ok: true, data: recordSuggestionFeedback(req.body || {}) }); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+app.get("/api/media/unfurl", async (req, res) => {
+  try { res.json({ ok: true, data: await unfurl(req.query.url || "") }); }
+  catch (e) { res.json({ ok: false, error: e.message }); }
 });
 
 app.post("/api/media/posts", (req, res) => {
