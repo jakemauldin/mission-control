@@ -1,7 +1,7 @@
 # Mission Control — ground-up redesign, final design
 
 Status: approved design, ready to build. Supersedes REDESIGN-BRIEF.md as the build spec.
-Date: 2026-08-23. Repo: `~/Dashboard/mission-control` (origin: jakemauldin/rising-creek-dashboard).
+Date: 2026-08-23. Repo: `~/Dashboard/mission-control` (origin: jakemauldin/mission-control, renamed from rising-creek-dashboard 2026-08-23).
 Branch: `redesign/ground-up`, commits per unit, 8-commit history preserved.
 
 This document is the fusion of three panel proposals. Where they disagreed, section 11 records

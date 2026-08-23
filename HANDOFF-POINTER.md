@@ -1,6 +1,6 @@
 # Handoff Pointer — 2026-04-15
 
-This repo (rising-creek-dashboard) is the Mission Control React + Express app.
+This repo (github jakemauldin/mission-control, formerly rising-creek-dashboard) is the Mission Control React + Express app.
 
 If you're picking up the **expense pipeline / QBO / JT cost-code work** that happened on 2026-04-15, that's NOT in this repo. It lives at:
 
