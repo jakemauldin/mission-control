@@ -66,6 +66,35 @@ export default function Media() {
         </a>
       </Section>
 
+      <Section title={`Built posts${posts.length ? ` (${posts.length})` : ""}`}>
+        {posts.length === 0 && <div style={{ color: C.dim, fontSize: 13 }}>Nothing built yet — use the Post builder.</div>}
+        {posts.map(p => {
+          const pc = { draft: "#fbbf24", approved: BRAND.focus, posted: "#4ade80", abandoned: C.dim }[p.status] || C.dim;
+          const setSt = (status) => fetch(`/api/media/posts/${p.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) }).then(loadQueue);
+          const customizedN = Object.keys(p.refsByPlatform || {}).length;
+          return (
+            <div key={p.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: pc }} />
+                <span style={{ fontFamily: "monospace", fontSize: 11, color: C.dim }}>{p.id}</span>
+                <span style={{ fontSize: 11, color: C.dim }}>{(p.platforms || []).join(" · ")}{customizedN ? ` · ${customizedN} custom layout${customizedN > 1 ? "s" : ""}` : ""}</span>
+                {p.scheduleAt && <span style={{ fontSize: 11, color: BRAND.focus }}>🕐 {new Date(p.scheduleAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>}
+                <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700, color: pc, letterSpacing: 0.5 }}>{p.status.toUpperCase()}</span>
+              </div>
+              <div style={{ fontSize: 13, margin: "4px 0 6px", color: C.text }}>{(p.caption || "").slice(0, 110)}{(p.caption || "").length > 110 ? "…" : ""}</div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                {(p.refs || []).slice(0, 5).map(f => <img key={f} src={`/api/media/thumb?rel=${encodeURIComponent(f)}`} alt="" style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 5, border: `1px solid ${C.border}` }} />)}
+                <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                  {p.status === "draft" && <button onClick={() => setSt("approved")} style={{ padding: "3px 10px", background: "none", border: `1px solid ${BRAND.border}`, color: BRAND.focus, borderRadius: 6, fontSize: 11, cursor: "pointer" }}>Approve</button>}
+                  {p.status !== "posted" && <button onClick={() => setSt("posted")} style={{ padding: "3px 10px", background: "none", border: `1px solid ${C.border}`, color: "#4ade80", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>Mark posted</button>}
+                  {p.status === "draft" && <button onClick={() => setSt("abandoned")} style={{ padding: "3px 10px", background: "none", border: `1px solid ${C.border}`, color: C.dim, borderRadius: 6, fontSize: 11, cursor: "pointer" }}>Drop</button>}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </Section>
+
       <Section title="Generate">
         <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
