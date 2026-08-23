@@ -97,7 +97,7 @@ function containerCards() {
         const [name, status] = l.split("|");
         const lk = links[name] || {};
         return { kind: "container", name, ok: /Up/.test(status), detail: status,
-          url: lk.url || null, source: lk.source || null, note: lk.note || null };
+          url: lk.url || null, source: lk.source || null, note: lk.note || null, kasmUrl: lk.kasmUrl || null };
       });
       dockerCache = { at: Date.now(), data: rows };
       resolve(rows);
