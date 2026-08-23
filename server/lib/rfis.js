@@ -78,3 +78,30 @@ export function updateRfiItem(jobId, itemId, { status, note }) {
   renameSync(tmp, f);
   return { ok: true, item };
 }
+
+// Media visuals: thumbnails already exist in _thumbs (gallery's cache-first scheme:
+// key = rel path with non-alnum → "_" + "_340.jpg"). We serve ONLY from the cache,
+// never generate — the gallery owns generation.
+export function thumbPathFor(rel) {
+  const key = String(rel).replace(/[^A-Za-z0-9]/g, "_") + "_340.jpg";
+  return join(MEDIA, "_thumbs", key);
+}
+
+export function recentMedia(bucket = "postable", n = 24) {
+  const listFile = { postable: "_postable.json", approved: "_approved.json" }[bucket];
+  if (!listFile) return [];
+  let labels = [];
+  try { const d = JSON.parse(readFileSync(join(MEDIA, listFile), "utf-8")); labels = Array.isArray(d) ? d : Object.keys(d); } catch { return []; }
+  let cat = {};
+  try { cat = JSON.parse(readFileSync(join(MEDIA, "_catalogue.json"), "utf-8")); } catch { /* thin result */ }
+  const out = [];
+  for (const label of labels.slice().reverse()) {   // newest additions last in file → reverse
+    const entry = cat[label];
+    const file = entry?.file;
+    if (!file) continue;
+    if (!existsSync(thumbPathFor(file))) continue;  // only show what can render
+    out.push({ label, file, shows: entry.shows || "" });
+    if (out.length >= n) break;
+  }
+  return out;
+}

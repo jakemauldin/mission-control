@@ -108,14 +108,39 @@ function healthSnapshot() {
   return { kind: "health", name: "Health check", ok: false, detail: "no readable health log" };
 }
 
+// live kernel check (Jake, 2026-08-23: "can the health snapshot refresh at page load?" —
+// the full health script is too heavy + DMs Telegram, so the page derives status LIVE
+// from the same sources instead). journalctl is cheap; cached 5 min. NOTE: one OOM kill
+// writes 3 matching lines, so we count distinct "Out of memory: Killed" events only —
+// the line-count trap that made the health check cry wolf on 2026-08-23.
+let kernelCache = { at: 0, data: null };
+function kernelCard() {
+  return new Promise((resolve) => {
+    if (kernelCache.data && Date.now() - kernelCache.at < 300000) return resolve(kernelCache.data);
+    execFile("journalctl", ["-k", "--since", "24 hours ago", "-q"], { timeout: 6000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+      let card;
+      if (err) card = { kind: "kernel", name: "Kernel (live, 24h)", ok: true, detail: "journalctl unreadable — not provable" };
+      else {
+        const ooms = (stdout.match(/Out of memory: Killed/g) || []).length;
+        const conntrack = /conntrack: table full/.test(stdout);
+        card = { kind: "kernel", name: "Kernel (live, 24h)", ok: ooms === 0 && !conntrack,
+                 detail: ooms ? `${ooms} OOM kill${ooms > 1 ? "s" : ""} in 24h` : conntrack ? "conntrack table full" : "clean" };
+      }
+      kernelCache = { at: Date.now(), data: card };
+      resolve(card);
+    });
+  });
+}
+
 export async function systemsOutcomes() {
-  const containers = await containerCards();
+  const [containers, kernel] = await Promise.all([containerCards(), kernelCard()]);
+  const backups = backupCards(), disk = diskCards(), crons = expectationCards();
+  // overall is derived LIVE — the 01:00 snapshot is one labeled card, never the verdict
+  const overall = [...backups, ...disk, ...crons, ...containers, kernel].every(c => c.ok) ? "GREEN" : "RED";
   return {
     generated: new Date().toISOString(),
-    backups: backupCards(),
-    disk: diskCards(),
-    crons: expectationCards(),
-    containers,
+    overall,
+    backups, disk, crons, containers, kernel,
     health: healthSnapshot(),
   };
 }

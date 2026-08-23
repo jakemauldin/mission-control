@@ -13,20 +13,26 @@ export default function Media() {
   const [queue, setQueue] = useState([]);
   const [form, setForm] = useState({ type: "social ad", aspect: "9x16", jobContext: "", intent: "", refs: "" });
   const [created, setCreated] = useState(null);
+  const [recent, setRecent] = useState([]);
+  const [picked, setPicked] = useState([]);   // rel paths chosen as refs
   const ws = useWebSocket();
 
   const loadQueue = useCallback(() => {
     fetch("/api/media/generate").then(r => r.json()).then(d => setQueue(d.data || [])).catch(() => {});
   }, []);
-  useEffect(() => { fetch("/api/media/counts").then(r => r.json()).then(d => setCounts(d.data)).catch(() => {}); loadQueue(); }, [loadQueue]);
+  useEffect(() => {
+    fetch("/api/media/counts").then(r => r.json()).then(d => setCounts(d.data)).catch(() => {});
+    fetch("/api/media/recent?bucket=postable&n=36").then(r => r.json()).then(d => setRecent(d.data || [])).catch(() => {});
+    loadQueue();
+  }, [loadQueue]);
   useEffect(() => { if (ws.lastMessage?.type === "gen_update") loadQueue(); }, [ws.lastMessage, loadQueue]);
 
   const submit = async (e) => {
     e.preventDefault();
-    const body = { ...form, refs: form.refs.split(",").map(s => s.trim()).filter(Boolean) };
+    const body = { ...form, refs: [...picked, ...form.refs.split(",").map(s => s.trim()).filter(Boolean)] };
     const r = await fetch("/api/media/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const d = await r.json();
-    if (d.ok) { setCreated(d.data); setForm(f => ({ ...f, intent: "", refs: "" })); loadQueue(); }
+    if (d.ok) { setCreated(d.data); setForm(f => ({ ...f, intent: "", refs: "" })); setPicked([]); loadQueue(); }
   };
 
   const cell = (label, n, hot) => (
@@ -68,8 +74,28 @@ export default function Media() {
           <textarea value={form.intent} onChange={e => setForm(f => ({ ...f, intent: e.target.value }))} rows={2} required
             placeholder="What should this piece DO — not how it should look. The prompt gets composed in Jake's session."
             style={{ ...inp, resize: "vertical" }} />
+          {recent.length > 0 && (
+            <div>
+              <div style={{ fontSize: 12, color: C.dim, marginBottom: 6 }}>
+                Tap photos to attach as references ({picked.length} picked) — newest postable shots:
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))", gap: 6 }}>
+                {recent.map(m => {
+                  const on = picked.includes(m.file);
+                  return (
+                    <img key={m.label} src={`/api/media/thumb?rel=${encodeURIComponent(m.file)}`} alt={m.shows}
+                      title={`${m.label} — ${m.shows}`} loading="lazy"
+                      onClick={() => setPicked(p => on ? p.filter(x => x !== m.file) : [...p, m.file])}
+                      style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 8, cursor: "pointer",
+                               border: on ? `3px solid ${BRAND.focus}` : `1px solid ${C.border}`,
+                               opacity: on ? 1 : 0.85 }} />
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <input value={form.refs} onChange={e => setForm(f => ({ ...f, refs: e.target.value }))}
-            placeholder="reference files, comma-separated (paths under media-library, optional)" style={inp} />
+            placeholder="extra reference paths, comma-separated (optional)" style={inp} />
           <div>
             <button type="submit" style={{ padding: "9px 16px", background: BRAND.accent, color: "#0C1017", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
               Queue it

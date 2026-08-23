@@ -5,7 +5,7 @@ import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { requireAuth, checkPassphrase, makeSessionCookie, clearSessionCookie, validSession } from "./lib/auth.js";
 import { buildBrief, snoozeItem, invalidateBrief } from "./lib/brief.js";
-import { listRfiJobs, getRfi, mediaCounts, updateRfiItem } from "./lib/rfis.js";
+import { listRfiJobs, getRfi, mediaCounts, updateRfiItem, recentMedia, thumbPathFor } from "./lib/rfis.js";
 import { systemsOutcomes } from "./lib/systems.js";
 import { createGenRequest, listGenRequests } from "./lib/gen.js";
 import chokidar from "chokidar";
@@ -414,6 +414,17 @@ app.post("/api/media/generate", (req, res) => {
 });
 app.get("/api/media/generate", (_req, res) => {
   try { res.json({ ok: true, data: listGenRequests() }); } catch (e) { res.json({ ok: false, error: e.message }); }
+});
+
+app.get("/api/media/recent", (req, res) => {
+  try { res.json({ ok: true, data: recentMedia(req.query.bucket || "postable", Math.min(60, parseInt(req.query.n, 10) || 24)) }); }
+  catch (e) { res.json({ ok: false, error: e.message }); }
+});
+// Serves ONLY from the _thumbs cache. The rel is flattened to a cache key (all
+// non-alnum → "_"), so traversal cannot escape the thumbs dir by construction.
+app.get("/api/media/thumb", (req, res) => {
+  const p = thumbPathFor(req.query.rel || "");
+  res.sendFile(p, (err) => { if (err) res.status(404).end(); });
 });
 
 app.get("/api/media/counts", (_req, res) => {

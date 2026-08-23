@@ -38,11 +38,15 @@ function Shell() {
   const healthData = useHealth();
   const [menu, setMenu] = useState(false);
 
-  // Status dot IS the Systems entry point (§1).
-  const healthText = typeof healthData.data === "string" ? healthData.data : "";
-  const red = /STATUS:\s*RED/i.test(healthText);
-  const yellow = /STATUS:\s*YELLOW/i.test(healthText);
-  const dot = red ? "#f87171" : yellow ? "#facc15" : "#4ade80";
+  // Status dot IS the Systems entry point (§1) — and it is LIVE, derived from the
+  // outcomes endpoint, not the 01:00 health snapshot (Jake, 8/23: the stale RED
+  // dot after the fixes was confusing). Polls every 60s.
+  const [overall, setOverall] = useState(null);
+  useEffect(() => {
+    const load = () => fetch("/api/systems/outcomes").then(r => r.json()).then(d => setOverall(d.data?.overall)).catch(() => {});
+    load(); const t = setInterval(load, 60000); return () => clearInterval(t);
+  }, []);
+  const dot = overall === "RED" ? "#D96C5C" : overall === "GREEN" ? "#7CB65C" : "#948D74";
 
   const navStyle = ({ isActive }) => ({
     padding: "8px 14px", borderRadius: 8, fontSize: 14, textDecoration: "none",
@@ -59,7 +63,8 @@ function Shell() {
           <NavLink to="/systems" title="Systems" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
             <span style={{ width: 10, height: 10, borderRadius: "50%", background: dot, boxShadow: `0 0 8px ${dot}` }} />
           </NavLink>
-          <div style={{ fontWeight: 700, fontSize: 15, color: C.bright, marginRight: 8 }}>Rising Creek</div>
+          <img src="/logo-64.png" alt="" style={{ width: 26, height: 26, borderRadius: 6 }} />
+          <div style={{ fontWeight: 600, fontSize: 15, color: C.bright, marginRight: 8, fontFamily: "'Poppins',sans-serif", letterSpacing: 0.3 }}>RISING CREEK</div>
           <nav style={{ display: "flex", gap: 4, flexWrap: "wrap", flex: 1 }}>
             {NAV.map(n => <NavLink key={n.to} to={n.to} end={n.end} style={navStyle}>{n.label}</NavLink>)}
           </nav>

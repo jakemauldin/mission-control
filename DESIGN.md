@@ -211,8 +211,10 @@ plus a sibling `photos/` directory of physically copied, resized images. It is g
 calls JobTread, and never reads `/mnt/rc_media`.
 
 Projection contents: job name, address, plain-English milestones and dates, progress state,
-`postable`/`approved` photos matched to that job via `_job-match.json`, and pay-app status as a
-state chip only (draft / submitted / paid) if enabled. Excluded by construction, not by filter:
+`postable`/`approved` photos matched to that job via `_job-match.json`, and — per Jake 2026-08-23 —
+the CLIENT-FACING RFI view for that one job (the `RFI-LOG.md` shape, never internal), with **no
+job chooser**: the admin `/rfis` keeps the picker, the portal is scoped to the token's job by
+construction. Pay-app status: RESOLVED — photos+schedule only, no money chip. Excluded by construction, not by filter:
 cost lines, vendor names, margin, SOV detail, `RFI-LOG-INTERNAL.md`, any other job, any systems
 data. Those fields are never written into the file, so there is nothing to over-expose.
 

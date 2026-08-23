@@ -1,34 +1,28 @@
+// Rising Creek theme tokens. Values derive from rc-brand-config.json
+// (#635500 dark olive/gold is THE brand color; Poppins headings, Open Sans body).
+// Dark surfaces use warm near-blacks so the olive family reads as Rising Creek,
+// not as a generic slate dashboard. #635500 itself fails contrast on dark
+// (2.57:1) so accents come from the derived ramp below (DESIGN.md §8).
 export const C = {
-  bg: "#030712",
-  card: "#0C1017",
-  bdr: "#1C2030",
-  text: "#CBD5E1",
-  dim: "#64748B",
-  bright: "#F1F5F9",
-  accent: "#E8722A",
-  font: "'IBM Plex Sans', -apple-system, sans-serif",
-  mono: "'IBM Plex Mono', monospace",
+  bg: "#0E0C06",        // warm near-black
+  card: "#181509",      // warm card
+  border: "#2E2915",    // olive-tinged border
+  text: "#DDD8C6",      // warm off-white body
+  dim: "#948D74",       // warm slate
+  bright: "#F4EFDE",    // headings
+  accent: "#A8952B",    // brand accent (was Divi orange — retired)
 };
 
-export const crd = {
-  background: C.card,
-  border: `1px solid ${C.bdr}`,
-  borderRadius: 16,
-};
-
-export const inn = {
-  background: "rgba(255,255,255,0.03)",
-  border: `1px solid ${C.bdr}`,
-  borderRadius: 12,
-  padding: 14,
-};
-
-// Rising Creek dark-surface ramp derived from rc-brand-config.json's #635500 anchor
-// (which fails contrast on dark cards at 2.57:1 — DESIGN.md §8). New surfaces use
-// these; existing views keep their inline styles until touched for another reason.
 export const BRAND = {
-  border: "#8A7A12",   // 4.42:1 — borders + large text only
+  primary: "#635500",  // the true brand color — light surfaces (client portal) only
+  border: "#8A7A12",   // 4.42:1 on card — borders + large text
   accent: "#A8952B",   // 6.35:1 — default accent
-  link:   "#C2AC3D",   // 8.4:1  — links + emphasis
-  focus:  "#D6C255",   // 10.6:1 — hover + focus ring
+  link:   "#C2AC3D",   // 8.4:1 — links + emphasis
+  focus:  "#D6C255",   // 10.6:1 — hover + focus
 };
+
+// status colors (shared by sv() and views)
+export const STATUS = { good: "#7CB65C", warn: "#D9A93B", bad: "#D96C5C" };
+
+export const crd = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 };
+export const inn = { background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 };
