@@ -13,6 +13,7 @@ import Login from "./views/Login";
 import Media from "./views/Media";
 import { RfiIndex, RfiJob } from "./views/RFIs";
 import JobDetail from "./views/JobDetail";
+import PostBuilder from "./views/PostBuilder";
 import JobsView from "./views/Jobs";
 import BillingView from "./views/Billing";
 import OpenBillsView from "./views/OpenBills";
@@ -32,6 +33,15 @@ const NAV = [
   { to: "/media", label: "Media" },
   { to: "/rfis", label: "RFIs" },
   { to: "/jobs", label: "Jobs" },
+];
+// Secondary pages: inline on desktop (there is room — Jake, 8/23: "tabs are
+// consolidated on the right"), behind the ⋯ only on phone widths.
+const NAV2 = [
+  { to: "/projects", label: "Projects" },
+  { to: "/money/bills", label: "Bills" },
+  { to: "/systems", label: "Systems" },
+  { to: "/land", label: "Land" },
+  { to: "/expertise", label: "Expertise" },
 ];
 
 function Shell() {
@@ -67,16 +77,22 @@ function Shell() {
           </NavLink>
           <img src="/logo-64.png" alt="" style={{ width: 26, height: 26, borderRadius: 6 }} />
           <div style={{ fontWeight: 600, fontSize: 15, color: C.bright, marginRight: 8, fontFamily: "'Poppins',sans-serif", letterSpacing: 0.3 }}>RISING CREEK</div>
-          <nav style={{ display: "flex", gap: 4, flexWrap: "wrap", flex: 1 }}>
+          <nav style={{ display: "flex", gap: 4, flexWrap: "wrap", flex: 1, alignItems: "center" }}>
             {NAV.map(n => <NavLink key={n.to} to={n.to} end={n.end} style={navStyle}>{n.label}</NavLink>)}
+            <span className="hidden md:inline-block" style={{ width: 1, height: 18, background: C.border, margin: "0 6px" }} />
+            <span className="hidden md:flex" style={{ gap: 4 }}>
+              {NAV2.map(n => <NavLink key={n.to} to={n.to} style={({ isActive }) => ({ ...navStyle({ isActive }), fontSize: 13, color: isActive ? BRAND.focus : C.dim })}>{n.label}</NavLink>)}
+            </span>
           </nav>
           <div style={{ position: "relative" }}>
             <button onClick={() => setMenu(m => !m)} style={{ background: "none", border: `1px solid ${C.border}`, color: C.dim, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>⋯</button>
             {menu && (
               <div onClick={() => setMenu(false)} style={{ position: "absolute", right: 0, top: 38, background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 6, zIndex: 50, minWidth: 150 }}>
-                {[["/projects", "Projects"], ["/land", "Land"], ["/money/bills", "Bills"], ["/systems", "Systems"], ["/expertise", "Expertise"]].map(([to, label]) => (
-                  <NavLink key={to} to={to} style={{ display: "block", padding: "8px 12px", color: C.text, textDecoration: "none", fontSize: 13, borderRadius: 6 }}>{label}</NavLink>
-                ))}
+                <span className="md:hidden">
+                  {NAV2.map(n => (
+                    <NavLink key={n.to} to={n.to} style={{ display: "block", padding: "8px 12px", color: C.text, textDecoration: "none", fontSize: 13, borderRadius: 6 }}>{n.label}</NavLink>
+                  ))}
+                </span>
                 <button onClick={() => fetch("/api/logout", { method: "POST" }).then(() => window.location.href = "/login")}
                   style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: "none", border: "none", color: C.dim, fontSize: 13, cursor: "pointer" }}>Sign out</button>
               </div>
@@ -94,6 +110,7 @@ function Shell() {
           <Route path="/rfis" element={<RfiIndex />} />
           <Route path="/rfis/:jobId" element={<RfiJob />} />
           <Route path="/media" element={<Media />} />
+          <Route path="/media/post" element={<PostBuilder />} />
           <Route path="/systems" element={<SystemsWrap healthData={healthData} />} />
           <Route path="/projects" element={<ProjectsView />} />
           <Route path="/land" element={<LandFinderView />} />

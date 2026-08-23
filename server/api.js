@@ -8,6 +8,7 @@ import { buildBrief, snoozeItem, invalidateBrief } from "./lib/brief.js";
 import { listRfiJobs, getRfi, mediaCounts, updateRfiItem, recentMedia, thumbPathFor } from "./lib/rfis.js";
 import { systemsOutcomes } from "./lib/systems.js";
 import { createGenRequest, listGenRequests } from "./lib/gen.js";
+import { createPost, listPosts } from "./lib/posts.js";
 import chokidar from "chokidar";
 import { homedir } from "os";
 import { execDocker, execDockerJSON } from "./lib/docker.js";
@@ -425,6 +426,13 @@ app.get("/api/media/recent", (req, res) => {
 app.get("/api/media/thumb", (req, res) => {
   const p = thumbPathFor(req.query.rel || "");
   res.sendFile(p, (err) => { if (err) res.status(404).end(); });
+});
+
+app.post("/api/media/posts", (req, res) => {
+  try { res.json({ ok: true, data: createPost(req.body || {}) }); } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.get("/api/media/posts", (_req, res) => {
+  try { res.json({ ok: true, data: listPosts() }); } catch (e) { res.json({ ok: false, error: e.message }); }
 });
 
 app.get("/api/media/counts", (_req, res) => {

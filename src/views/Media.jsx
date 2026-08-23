@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { C, BRAND } from "../lib/colors";
 import { Section } from "../components/ui/Card";
+import { Link } from "react-router-dom";
 import { useWebSocket } from "../hooks/useWebSocket";
 
 const GALLERY = "http://100.92.25.23:3251";
@@ -54,6 +55,9 @@ export default function Media() {
       </div>
 
       <Section title="Grade & pick">
+        <Link to="/media/post" style={{ display: "inline-block", padding: "10px 18px", background: "none", border: `1px solid ${BRAND.border}`, color: BRAND.focus, borderRadius: 8, fontWeight: 600, fontSize: 14, textDecoration: "none", marginRight: 10 }}>
+          Post builder →
+        </Link>
         <a href={GALLERY} target="_blank" rel="noreferrer"
           style={{ display: "inline-block", padding: "10px 18px", background: BRAND.accent, color: "#0C1017", borderRadius: 8, fontWeight: 600, fontSize: 14, textDecoration: "none" }}>
           Open the gallery →
