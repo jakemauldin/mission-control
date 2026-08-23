@@ -11,6 +11,10 @@ import { createGenRequest, listGenRequests } from "./lib/gen.js";
 import { createPost, listPosts, updatePostStatus } from "./lib/posts.js";
 import { suggestPosts, recordSuggestionFeedback, listSuggestBatches, revisePost } from "./lib/suggest.js";
 import { unfurl } from "./lib/unfurl.js";
+import {
+  listSessions, reviveSession, stopSession, pinSession, parkSessions, isUuid,
+  getSettings as getSessionSettings, saveSettings as saveSessionSettings, startAutoPark,
+} from "./lib/sessions.js";
 import chokidar from "chokidar";
 import { homedir } from "os";
 import { execDocker, execDockerJSON } from "./lib/docker.js";
@@ -600,6 +604,30 @@ setInterval(async () => {
   }
 }, 30_000);
 
+
+// ── Sessions: list / revive / stop / pin / park Claude Code sessions (lib/sessions.js) ──
+app.get("/api/sessions", async (_req, res) => {
+  const r = await listSessions();
+  res.status(r.ok ? 200 : 500).json({ ok: r.ok, data: r.sessions, settings: getSessionSettings(), message: r.message });
+});
+app.get("/api/sessions/settings", (_req, res) => res.json({ ok: true, data: getSessionSettings() }));
+app.put("/api/sessions/settings", (req, res) => res.json({ ok: true, data: saveSessionSettings(req.body || {}) }));
+app.post("/api/sessions/park", async (req, res) => {
+  const r = await parkSessions(!!req.body?.apply);
+  if (r.ok && req.body?.apply) broadcast({ type: "sessions_update", time: new Date().toISOString() });
+  res.json(r);
+});
+app.post("/api/sessions/:uuid/:action", async (req, res) => {
+  const { uuid, action } = req.params;
+  if (!isUuid(uuid)) return res.status(400).json({ ok: false, message: "bad session id" });
+  if (!["revive", "stop", "pin", "unpin"].includes(action)) return res.status(404).json({ ok: false, message: "unknown action" });
+  const r = action === "revive" ? await reviveSession(uuid)
+    : action === "stop" ? await stopSession(uuid)
+    : await pinSession(uuid, action === "pin");
+  if (r.ok) broadcast({ type: "sessions_update", time: new Date().toISOString() });
+  res.json(r);
+});
+
 // ── Static build (DESIGN.md §7: one process serves dist/ + /api + /ws) ──
 const DIST = join(import.meta.dirname, "..", "dist");
 if (existsSync(DIST)) {
@@ -611,6 +639,8 @@ if (existsSync(DIST)) {
 }
 
 // ── Start ────────────────────────────────────────────────────
+startAutoPark((msg) => broadcast({ type: "sessions_update", time: new Date().toISOString(), parked: msg }));
+
 server.listen(PORT, () => {
   console.log(`⚡ Rising Creek API → http://localhost:${PORT}`);
   console.log(`   WebSocket → ws://localhost:${PORT}/ws`);

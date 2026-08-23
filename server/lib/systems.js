@@ -77,6 +77,14 @@ function expectationCards() {
   });
 }
 
+// Container tiles link to their UI and source (Jake, 8/23: "containers could be an active
+// link to the relevant url or container source"). Map lives in data/container-links.json
+// so a moved port is a JSON edit, not a deploy. Read per refresh, tolerant of a bad file.
+const LINKS_PATH = join(import.meta.dirname, "..", "data", "container-links.json");
+function containerLinks() {
+  try { return JSON.parse(readFileSync(LINKS_PATH, "utf-8")); } catch { return {}; }
+}
+
 // containers via HOST docker (this API is a host process) — async + cached, never sync
 let dockerCache = { at: 0, data: [] };
 function containerCards() {
@@ -84,9 +92,12 @@ function containerCards() {
     if (Date.now() - dockerCache.at < 20000) return resolve(dockerCache.data);
     execFile("docker", ["ps", "--format", "{{.Names}}|{{.Status}}"], { timeout: 5000 }, (err, stdout) => {
       if (err) return resolve([{ kind: "containers", name: "docker", ok: false, detail: "docker ps failed" }]);
+      const links = containerLinks();
       const rows = stdout.trim().split("\n").filter(Boolean).map(l => {
         const [name, status] = l.split("|");
-        return { kind: "container", name, ok: /Up/.test(status), detail: status };
+        const lk = links[name] || {};
+        return { kind: "container", name, ok: /Up/.test(status), detail: status,
+          url: lk.url || null, source: lk.source || null, note: lk.note || null };
       });
       dockerCache = { at: Date.now(), data: rows };
       resolve(rows);

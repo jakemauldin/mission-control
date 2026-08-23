@@ -1,7 +1,7 @@
 // Systems (DESIGN.md §6): outcomes, not liveness. Did the thing that was supposed to
 // happen actually land, not "is the container up". No props — fetches its own data.
 import { useState, useEffect, useCallback } from "react";
-import { C } from "../lib/colors";
+import { C, BRAND } from "../lib/colors";
 import { Section } from "../components/ui/Card";
 import { useWebSocket } from "../hooks/useWebSocket";
 
@@ -95,9 +95,16 @@ export default function SystemsView() {
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
             {containers.map((c, i) => (
-              <div key={`${c.name}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "rgba(255,255,255,0.03)", border: `1px solid ${C.bdr}`, borderRadius: 8 }}>
+              <div key={`${c.name}-${i}`} title={c.note || c.detail || ""} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "rgba(255,255,255,0.03)", borderRadius: 8, minWidth: 0 }}>
                 <Dot ok={c.ok} />
-                <span style={{ fontSize: 12, color: C.bright, fontWeight: 600 }}>{c.name}</span>
+                {c.url ? (
+                  <a href={c.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: BRAND.link, fontWeight: 600, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</a>
+                ) : (
+                  <span style={{ fontSize: 12, color: C.bright, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                )}
+                {c.source && (
+                  <a href={c.source} target="_blank" rel="noopener noreferrer" title="source" style={{ fontSize: 10, color: C.dim, marginLeft: "auto", textDecoration: "none", flexShrink: 0 }}>src ↗</a>
+                )}
               </div>
             ))}
           </div>

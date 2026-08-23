@@ -1,0 +1,15 @@
+{
+  "_comment": "Systems tab: each container tile links to its UI (url) and its code (source). Edit freely, no deploy needed, re-read every 20s with docker ps. Tailnet host is risingcreek-ai.taild0b4c6.ts.net (tailscale serve) or the tailnet IP 100.92.25.23 where a port is bound there directly. Verified against `tailscale serve status` + `docker ps` 2026-08-23.",
+  "openclaw":            { "url": "http://100.92.25.23:18789",                         "source": "https://github.com/openclaw/openclaw",                 "note": "The Claw gateway" },
+  "openclaw-mcp":        { "url": "https://openclaw.risingcreek.ai",                   "source": "https://github.com/freema/openclaw-mcp",               "note": "public MCP bridge (OAuth)" },
+  "openclaw-browser":    { "url": "https://risingcreek-ai.taild0b4c6.ts.net:7901",     "source": "https://github.com/kasmtech/workspaces-images",        "note": "Kasm Chrome" },
+  "openclaw-browser-2":  { "url": "https://100.92.25.23:6902",                         "source": "https://github.com/kasmtech/workspaces-images",        "note": "Kasm Chrome #2 (self-signed cert)" },
+  "n8n":                 { "url": "http://100.92.25.23:8444",                          "source": "https://github.com/n8n-io/n8n" },
+  "paperclip":           { "url": "https://risingcreek-ai.taild0b4c6.ts.net:3100",     "source": "https://github.com/paperclipai/paperclip" },
+  "integration-api":     { "url": "https://risingcreek-ai.taild0b4c6.ts.net:3090",     "source": "https://github.com/jakemauldin/rising-creek-services/tree/master/integration-api" },
+  "tc-chat":             { "url": "https://risingcreek-ai.taild0b4c6.ts.net:3210",     "source": "https://github.com/Tread-Connection/platform" },
+  "tc-mcp":              { "url": "https://risingcreek-ai.taild0b4c6.ts.net:3200",     "source": "https://github.com/Tread-Connection/platform",          "note": "MCP endpoint, not a UI" },
+  "property-finder-mcp": { "url": null,                                                "source": "https://github.com/jakemauldin/rising-creek-services/tree/master/property-finder-mcp", "note": "MCP on 127.0.0.1:3220 only" },
+  "plaud-toolkit":       { "url": null,                                                "source": "https://github.com/jakemauldin/rising-creek-services/tree/master/plaud-toolkit",       "note": "internal :3110, no tailnet route" },
+  "remote-hands-target": { "url": null,                                                "source": "https://github.com/accetto/ubuntu-vnc-xfce-g3",         "note": "noVNC on 127.0.0.1:6999 only" }
+}
