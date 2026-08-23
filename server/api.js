@@ -15,6 +15,7 @@ import {
   listSessions, reviveSession, stopSession, pinSession, parkSessions, isUuid,
   getSettings as getSessionSettings, saveSettings as saveSessionSettings, startAutoPark,
 } from "./lib/sessions.js";
+import { listTabs as listBrowserTabs, openUrl as openBrowserUrl, activate as activateBrowserTab, close as closeBrowserTab, isHttpUrl } from "./lib/kasm.js";
 import chokidar from "chokidar";
 import { homedir } from "os";
 import { execDocker, execDockerJSON } from "./lib/docker.js";
@@ -626,6 +627,29 @@ app.post("/api/sessions/:uuid/:action", async (req, res) => {
     : await pinSession(uuid, action === "pin");
   if (r.ok) broadcast({ type: "sessions_update", time: new Date().toISOString() });
   res.json(r);
+});
+
+// ── Browser: shared Kasm Chrome tab control (lib/kasm.js) ────────────────────
+// The dashboard, container tiles on /systems, and Claude's own automation all reach the
+// same Chrome inside `openclaw-browser`. Never restarts that container. Every kasm.js call
+// carries its own 5s timeout, so a wedged CDP endpoint degrades to an error, not a hang.
+app.get("/api/browser/tabs", async (_req, res) => {
+  const r = await listBrowserTabs();
+  res.status(r.ok ? 200 : 502).json(r.ok ? { ok: true, data: r.data } : { ok: false, message: r.message });
+});
+app.post("/api/browser/open", async (req, res) => {
+  const url = req.body?.url;
+  if (!isHttpUrl(url)) return res.status(400).json({ ok: false, message: "url must be http:// or https://" });
+  const r = await openBrowserUrl(url);
+  res.status(r.ok ? 200 : 502).json(r);
+});
+app.post("/api/browser/tabs/:id/activate", async (req, res) => {
+  const r = await activateBrowserTab(req.params.id);
+  res.status(r.ok ? 200 : r.notFound ? 404 : 502).json(r);
+});
+app.post("/api/browser/tabs/:id/close", async (req, res) => {
+  const r = await closeBrowserTab(req.params.id);
+  res.status(r.ok ? 200 : r.notFound ? 404 : 502).json(r);
 });
 
 // ── Static build (DESIGN.md §7: one process serves dist/ + /api + /ws) ──
