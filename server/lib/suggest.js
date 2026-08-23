@@ -20,7 +20,7 @@ const LOG = join(import.meta.dirname, "..", "data", "post-suggestions.jsonl");
 const IdeaSchema = z.object({
   ideas: z.array(z.object({
     caption: z.string(),
-    platforms: z.array(z.enum(["facebook", "instagram", "gbp", "x", "pinterest", "linkedin"])),
+    platforms: z.array(z.enum(["facebook", "instagram", "gbp", "x", "pinterest", "linkedin", "youtube", "houzz"])),
     photoLabels: z.array(z.string()),
     angle: z.string(),
   })).length(3),
