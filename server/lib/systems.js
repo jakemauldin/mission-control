@@ -121,10 +121,18 @@ function kernelCard() {
       let card;
       if (err) card = { kind: "kernel", name: "Kernel (live, 24h)", ok: true, detail: "journalctl unreadable — not provable" };
       else {
-        const ooms = (stdout.match(/Out of memory: Killed/g) || []).length;
+        // Chrome renderers tag themselves first-to-die (oom_score_adj 300) — a
+        // chrome-only OOM is the sacrificial design working (Kasm tab pileup),
+        // not an incident. Anything ELSE being killed is red.
+        const victims = [...stdout.matchAll(/Out of memory: Killed process \d+ \((\S+?)\)/g)].map(m => m[1]);
+        const nonChrome = victims.filter(v => v !== "chrome");
         const conntrack = /conntrack: table full/.test(stdout);
-        card = { kind: "kernel", name: "Kernel (live, 24h)", ok: ooms === 0 && !conntrack,
-                 detail: ooms ? `${ooms} OOM kill${ooms > 1 ? "s" : ""} in 24h` : conntrack ? "conntrack table full" : "clean" };
+        const ok = nonChrome.length === 0 && !conntrack;
+        card = { kind: "kernel", name: "Kernel (live, 24h)", ok,
+                 detail: conntrack ? "conntrack table full"
+                   : nonChrome.length ? `OOM killed: ${[...new Set(nonChrome)].join(", ")}`
+                   : victims.length ? `${victims.length} chrome-tab OOM${victims.length > 1 ? "s" : ""} (sacrificial by design)`
+                   : "clean" };
       }
       kernelCache = { at: Date.now(), data: card };
       resolve(card);
