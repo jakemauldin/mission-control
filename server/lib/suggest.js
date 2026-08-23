@@ -42,6 +42,19 @@ function candidates() {
   return out;
 }
 
+function publishedBlock() {
+  // Backdated corpus: posts that actually ran on the platforms (imported via
+  // scripts/import-published-posts.mjs). Engagement-sorted when metrics exist —
+  // what the AUDIENCE responded to outranks recency.
+  try {
+    const hist = JSON.parse(readFileSync(join(import.meta.dirname, "..", "data", "published-history.json"), "utf-8"));
+    return hist
+      .slice()
+      .sort((a, b) => ((b.likes || 0) + 2 * (b.comments || 0)) - ((a.likes || 0) + 2 * (a.comments || 0)))
+      .slice(0, 12);
+  } catch { return []; }
+}
+
 function historyBlock() {
   const posts = listPosts().slice(0, 10).map(p => ({ caption: p.caption, platforms: p.platforms }));
   let feedback = [];
@@ -70,6 +83,7 @@ export async function suggestPosts() {
   const cands = candidates();
   if (!cands.length) throw new Error("no graded postable photos to work from");
   const hist = historyBlock();
+  const published = publishedBlock();
   const id = `sug-${new Date().toISOString().slice(0, 10)}-${randomBytes(3).toString("hex")}`;
 
   const response = await client.messages.parse({
@@ -82,7 +96,10 @@ export async function suggestPosts() {
       content: `Photo library (graded; label + what it shows):
 ${cands.map(c => `${c.label}: ${c.shows} [${c.scope || ""} · ${c.stage || ""} · q${c.quality}]`).join("\n")}
 
-${hist.posts.length ? `Jake's recent REAL posts (match this voice exactly — his edits are the ground truth):
+${published.length ? `PUBLISHED posts that actually ran on the platforms (deepest voice truth; those with engagement numbers are what the audience responded to — favor their angles):
+${published.map(p => `- [${p.platform}${p.likes != null ? ` · ${p.likes}👍/${p.comments}💬` : ""}] ${p.caption.slice(0, 200)}`).join("\n")}
+
+` : ""}${hist.posts.length ? `Jake's recent REAL posts (match this voice exactly — his edits are the ground truth):
 ${hist.posts.map(p => `- [${p.platforms.join(",")}] ${p.caption.slice(0, 200)}`).join("\n")}` : "No post history yet — lean on the voice rules."}
 ${hist.used.length ? `\nAngles he has USED before (good territory): ${hist.used.slice(-5).join(" · ")}` : ""}
 ${hist.ignored.length ? `\nAngles he IGNORED (avoid): ${hist.ignored.slice(-8).join(" · ")}` : ""}
