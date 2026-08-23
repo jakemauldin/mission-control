@@ -364,6 +364,8 @@ export default function PostBuilder() {
   const [ideas, setIdeas] = useState(null);
   const [sugId, setSugId] = useState(null);
   const [usedIdea, setUsedIdea] = useState(null);
+  // Per-platform photo arrangement (default = shared selection in shared order).
+  const [refsByPlatform, setRefsByPlatform] = useState({});
   const [unfurls, setUnfurls] = useState({});
 
   useEffect(() => { fetch("/api/media/recent?bucket=postable&n=36").then(r => r.json()).then(d => setRecent(d.data || [])).catch(() => {}); }, []);
@@ -407,7 +409,7 @@ export default function PostBuilder() {
     } catch { setIdeas(null); }
   };
   const fb = (body) => fetch("/api/media/suggest/feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const useIdea = (idea) => {
+  const applyIdea = (idea) => {
     setCaption(idea.caption);
     setRefs(idea.photos.map(p => p.file));
     setOn(o => Object.fromEntries(Object.keys(o).map(k => [k, idea.platforms.includes(k)])));
@@ -450,7 +452,7 @@ export default function PostBuilder() {
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                     <span style={{ fontSize: 11, color: BRAND.focus, fontWeight: 700, letterSpacing: 0.4 }}>{i.angle.toUpperCase()}</span>
                     <span style={{ fontSize: 11, color: C.dim }}>{i.platforms.join(" · ")}</span>
-                    <button onClick={() => useIdea(i)} style={{ marginLeft: "auto", padding: "5px 12px", background: BRAND.accent, color: "#0C1017", border: "none", borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>Use this</button>
+                    <button onClick={() => applyIdea(i)} style={{ marginLeft: "auto", padding: "5px 12px", background: BRAND.accent, color: "#0C1017", border: "none", borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>Use this</button>
                   </div>
                   <div style={{ fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap", marginBottom: 8 }}>{i.caption}</div>
                   <div style={{ display: "flex", gap: 5 }}>
