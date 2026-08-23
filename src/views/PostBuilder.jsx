@@ -392,13 +392,14 @@ function PhotoStrip({ effRefs, allRefs, onToggle, onPlace, coverBadge = true }) 
   }, [effRefs]);
 
   const down = (e, f) => {
+    if (st.current.file) return;                     // one active drag; a second finger must not hijack it
     const r = e.currentTarget.getBoundingClientRect();
-    st.current = { file: f, sx: e.clientX, sy: e.clientY, moved: false, last: null, offX: e.clientX - r.left, offY: e.clientY - r.top };
+    st.current = { pid: e.pointerId, file: f, sx: e.clientX, sy: e.clientY, moved: false, last: null, offX: e.clientX - r.left, offY: e.clientY - r.top };
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
   const move = (e) => {
     const d = st.current;
-    if (!d.file) return;
+    if (!d.file || e.pointerId !== d.pid) return;
     if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6) return;
     d.moved = true;
     setDrag({ file: d.file, x: e.clientX, y: e.clientY, offX: d.offX, offY: d.offY });
@@ -406,15 +407,16 @@ function PhotoStrip({ effRefs, allRefs, onToggle, onPlace, coverBadge = true }) 
     const target = el?.dataset.photo;
     if (target && target !== d.last) { d.last = target; onPlace(d.file, target); }
   };
-  const up = () => {
-    st.current = { file: null, sx: 0, sy: 0, moved: false, last: null, offX: 0, offY: 0 };
+  const up = (e) => {
+    if (e && st.current.file && e.pointerId !== st.current.pid) return;   // other finger lifting must not end the drag
+    st.current = { pid: null, file: null, sx: 0, sy: 0, moved: false, last: null, offX: 0, offY: 0 };
     setDrag(null);
   };
 
   const excluded = allRefs.filter(f => !effRefs.includes(f));
   return (
     <div>
-      <div ref={boxRef} style={{ display: "flex", gap: 6, flexWrap: "wrap" }} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
+      <div ref={boxRef} style={{ display: "flex", gap: 6, flexWrap: "wrap", userSelect: "none", WebkitUserSelect: "none" }} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
         {effRefs.map((f, idx) => {
           const isDrag = drag?.file === f;
           return (
@@ -476,8 +478,9 @@ export default function PostBuilder() {
 
   useEffect(() => { fetch("/api/media/recent?bucket=postable&n=36").then(r => r.json()).then(d => setRecent(d.data || [])).catch(() => {}); }, []);
   useEffect(() => { setPlacement(PLATFORMS[tab].placements[0]); }, [tab]);
+  const effPlacement = PLATFORMS[tab].placements.includes(placement) ? placement : PLATFORMS[tab].placements[0];
 
-  const text = overrides[tab] ?? caption;
+  const text = overrides[tab] || caption;  // "" falls back too — an emptied override box must not queue a blank caption
   const P = PLATFORMS[tab];
   const warns = lint(text, tab);
   const activePlatforms = Object.keys(on).filter(k => on[k]);
@@ -526,14 +529,21 @@ export default function PostBuilder() {
     setRefs(idea.photos.map(p => p.file));
     setOn(o => Object.fromEntries(Object.keys(o).map(k => [k, idea.platforms.includes(k)])));
     setRefsByPlatform({});
+    setOverrides({});
     setUsedIdea({ angle: idea.angle });
     fb({ suggestionId: sugId, angle: idea.angle, action: "used" });
     (ideas || []).filter(i => i.index !== idea.index).forEach(i => fb({ suggestionId: sugId, angle: i.angle, action: "ignored" }));
     setIdeas(null);
   };
+  const [submitting, setSubmitting] = useState(false);
   const queue = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    // BUG 8: only ship overrides/arrangements for platforms actually in the post
+    const cleanOv = Object.fromEntries(Object.entries(overrides).filter(([k, v]) => on[k] && v));
+    const cleanRbp = Object.fromEntries(Object.entries(refsByPlatform).filter(([k]) => on[k]));
     const r = await fetch("/api/media/posts", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ caption, overrides, platforms: activePlatforms, refs, refsByPlatform }) });
+      body: JSON.stringify({ caption, overrides: cleanOv, platforms: activePlatforms, refs, refsByPlatform: cleanRbp }) }).finally(() => setSubmitting(false));
     const d = await r.json();
     if (d.ok) {
       setQueued(d.data.id);
@@ -579,7 +589,11 @@ export default function PostBuilder() {
             style={{ ...inp, resize: "vertical", marginBottom: 10 }} />
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
             {Object.entries(PLATFORMS).map(([k, p]) => (
-              <button key={k} onClick={() => setOn(o => ({ ...o, [k]: !o[k] }))}
+              <button key={k} onClick={() => setOn(o => {
+                  const next = { ...o, [k]: !o[k] };
+                  if (k === tab && !next[k]) { const first = Object.keys(next).find(x => next[x]); if (first) setTab(first); }
+                  return next;
+                })}
                 style={{ padding: "5px 11px", borderRadius: 16, fontSize: 12, cursor: "pointer",
                          border: `1px solid ${on[k] ? BRAND.border : C.border}`,
                          background: on[k] ? "rgba(168,149,43,.15)" : C.card, color: on[k] ? BRAND.focus : C.text }}>
@@ -597,7 +611,7 @@ export default function PostBuilder() {
                          border: sel ? `3px solid ${BRAND.focus}` : `1px solid ${C.border}`, opacity: sel ? 1 : 0.8 }} />;
             })}
           </div>
-          <button onClick={queue} disabled={!caption || !activePlatforms.length}
+          <button onClick={queue} disabled={!caption || !activePlatforms.length || submitting}
             style={{ padding: "9px 16px", background: BRAND.accent, color: "#0C1017", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer", opacity: (!caption || !activePlatforms.length) ? 0.5 : 1 }}>
             Queue post ({activePlatforms.length} platform{activePlatforms.length === 1 ? "" : "s"})
           </button>
@@ -627,23 +641,23 @@ export default function PostBuilder() {
                   {P.placements.map(pl => (
                     <button key={pl} onClick={() => setPlacement(pl)}
                       style={{ padding: "4px 10px", borderRadius: 12, fontSize: 11, cursor: "pointer",
-                               border: `1px solid ${placement === pl ? BRAND.border : C.border}`,
-                               background: "none", color: placement === pl ? BRAND.focus : C.dim }}>
+                               border: `1px solid ${effPlacement === pl ? BRAND.border : C.border}`,
+                               background: "none", color: effPlacement === pl ? BRAND.focus : C.dim }}>
                       {pl}
                     </button>
                   ))}
                 </div>
               )}
-              <Preview platform={tab} placement={placement} caption={text} refs={effRefs} link={link} />
+              <Preview platform={tab} placement={effPlacement} caption={text} refs={effRefs} link={link} />
               <div style={{ marginTop: 10, fontSize: 12, color: text.length > P.cap ? "#D96C5C" : C.dim }}>
                 {text.length}/{P.cap} characters
                 {(overrides[tab] !== undefined) && <button onClick={() => setOverrides(o => { const n = { ...o }; delete n[tab]; return n; })}
                   style={{ marginLeft: 8, background: "none", border: "none", color: BRAND.link, fontSize: 12, cursor: "pointer" }}>clear override</button>}
               </div>
-              <textarea value={overrides[tab] ?? ""} onChange={e => setOverrides(o => ({ ...o, [tab]: e.target.value }))} rows={2}
+              <textarea value={overrides[tab] ?? ""} onChange={e => setOverrides(o => { const n = { ...o }; if (e.target.value === "") delete n[tab]; else n[tab] = e.target.value; return n; })} rows={2}
                 placeholder={`Override the caption for ${P.label} only (blank = shared caption)`}
                 style={{ ...inp, resize: "vertical", marginTop: 8 }} />
-              {refs.length > 0 && (
+              {(refs.length > 0 || effRefs.length > 0) && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: 12, color: C.dim, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
                     Photos on {P.label} {customized

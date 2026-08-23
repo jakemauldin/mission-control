@@ -67,6 +67,15 @@ function historyBlock() {
   return { posts, used, ignored };
 }
 
+// Catalogue text is model-written and interpolates into the prompt — strip anything
+// that could smuggle instructions (braces, newlines) and cap length.
+const clean = (x) => String(x || "").replace(/[{}\n\r]/g, " ").slice(0, 200);
+const VIOLATIONS = [
+  [/\$\s?\d/, "dollar figure"],
+  [/dirt\s*to\s*done/i, "competitor tagline"],
+  [/tilt[\s-]?wall/i, "tilt-wall claim"],
+];
+
 const VOICE = `You write social posts for Rising Creek Construction — an owner-run commercial
 general contractor in Springtown, TX (DFW market), with a 300+ trade-partner bench. Also does
 select custom homes and barndominiums. Voice: "WE", plainspoken, proud of the work, zero puffery.
@@ -94,7 +103,7 @@ export async function suggestPosts() {
     messages: [{
       role: "user",
       content: `Photo library (graded; label + what it shows):
-${cands.map(c => `${c.label}: ${c.shows} [${c.scope || ""} · ${c.stage || ""} · q${c.quality}]`).join("\n")}
+${cands.map(c => `${c.label}: ${clean(c.shows)} [${clean(c.scope)} · ${clean(c.stage)} · q${c.quality}]`).join("\n")}
 
 ${published.length ? `PUBLISHED posts that actually ran on the platforms (deepest voice truth; those with engagement numbers are what the audience responded to — favor their angles):
 ${published.map(p => `- [${p.platform}${p.likes != null ? ` · ${p.likes}👍/${p.comments}💬` : ""}] ${p.caption.slice(0, 200)}`).join("\n")}
@@ -113,6 +122,10 @@ for the idea's territory (used for the feedback loop).`,
 
   const parsed = response.parsed_output;
   if (!parsed) throw new Error("model returned unparseable ideas");
+  // HARD RULES enforced server-side, not just prompt-side: a violating caption is
+  // dropped before Jake ever sees it (client lint only warns, and only per-tab).
+  parsed.ideas = parsed.ideas.filter(i => !VIOLATIONS.some(([re]) => re.test(i.caption)));
+  if (!parsed.ideas.length) throw new Error("all ideas violated house rules — try again");
   // map labels → files, drop hallucinated labels
   let cat = {};
   try { cat = JSON.parse(readFileSync(join(MEDIA, "_catalogue.json"), "utf-8")); } catch { /* */ }

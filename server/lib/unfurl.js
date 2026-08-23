@@ -39,10 +39,27 @@ export async function unfurl(raw) {
   const t = setTimeout(() => ctl.abort(), 6000);
   let html = "";
   try {
-    const r = await fetch(u.href, {
-      signal: ctl.signal, redirect: "follow",
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36" },
-    });
+    // Redirects are followed MANUALLY so every hop re-runs the private-IP guard —
+    // redirect:"follow" would happily chase a shortener into 100.x/169.254 after we
+    // vetted only the first hostname. (Residual DNS-rebinding TOCTOU noted: full fix
+    // is pinning the vetted IP via a custom dispatcher; per-hop checks close the
+    // practical redirect vector.)
+    let hopUrl = u;
+    let r = null;
+    for (let hop = 0; hop < 4; hop++) {
+      const { address: hopIp } = await lookup(hopUrl.hostname);
+      if (ipBlocked(hopIp)) throw new Error("host not allowed");
+      r = await fetch(hopUrl.href, {
+        signal: ctl.signal, redirect: "manual",
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36" },
+      });
+      if (r.status >= 300 && r.status < 400 && r.headers.get("location")) {
+        hopUrl = new URL(r.headers.get("location"), hopUrl.href);
+        if (!/^https?:$/.test(hopUrl.protocol)) throw new Error("bad redirect scheme");
+        continue;
+      }
+      break;
+    }
     const reader = r.body.getReader();
     while (html.length < 512 * 1024) {
       const { done, value } = await reader.read();
