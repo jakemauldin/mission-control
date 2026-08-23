@@ -87,7 +87,16 @@ HARD RULES (violations make the idea unusable):
 - No AI-tells: no "elevate", "seamless", "unlock", no rule-of-three sentences, no em dashes.
 - Sound like a builder talking, not a marketer.`;
 
-export async function suggestPosts() {
+const BATCHES = join(import.meta.dirname, "..", "data", "suggest-batches.jsonl");
+
+export function listSuggestBatches(n = 10) {
+  try {
+    return readFileSync(BATCHES, "utf-8").trim().split("\n").slice(-n)
+      .map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean).reverse();
+  } catch { return []; }
+}
+
+export async function suggestPosts({ brief } = {}) {
   const client = new Anthropic(); // ANTHROPIC_API_KEY from env (BWS via start.sh)
   const cands = candidates();
   if (!cands.length) throw new Error("no graded postable photos to work from");
@@ -113,7 +122,7 @@ ${hist.posts.map(p => `- [${p.platforms.join(",")}] ${p.caption.slice(0, 200)}`)
 ${hist.used.length ? `\nAngles he has USED before (good territory): ${hist.used.slice(-5).join(" · ")}` : ""}
 ${hist.ignored.length ? `\nAngles he IGNORED (avoid): ${hist.ignored.slice(-8).join(" · ")}` : ""}
 
-Propose exactly 3 post ideas. Each: a ready-to-post caption, the platforms it suits,
+${brief ? `JAKE'S DIRECTION for this batch (obey it): ${clean(brief).slice(0, 400)}\n` : ""}Propose exactly 3 post ideas. Each: a ready-to-post caption, the platforms it suits,
 2-4 photoLabels chosen from the library above (pick photos that genuinely support the
 caption — you are choosing the media, that is the point), and "angle": a 4-8 word label
 for the idea's territory (used for the feedback loop).`,
@@ -135,10 +144,67 @@ for the idea's territory (used for the feedback loop).`,
   }));
   mkdirSync(join(import.meta.dirname, "..", "data"), { recursive: true });
   appendFileSync(LOG, JSON.stringify({ id, at: new Date().toISOString(), action: "shown", angles: ideas.map(i => i.angle) }) + "\n");
+  // full batch persisted so Jake can walk BACK to any earlier generation
+  appendFileSync(BATCHES, JSON.stringify({ id, at: new Date().toISOString(), brief: brief || null, ideas }) + "\n");
   return { id, ideas };
 }
 
 export function recordSuggestionFeedback({ suggestionId, angle, action, finalCaption }) {
   appendFileSync(LOG, JSON.stringify({ id: suggestionId, at: new Date().toISOString(), action, angle, finalCaption: finalCaption?.slice(0, 300) }) + "\n");
   return true;
+}
+
+
+// "Tell me what to change" (Jake, 8/23): take the CURRENT composition + a plain
+// instruction (typed or dictated), return the revised composition. Same model,
+// same house rules, same server-side enforcement as suggestions.
+const ReviseSchema = z.object({
+  caption: z.string(),
+  platforms: z.array(z.enum(["facebook", "instagram", "gbp", "x", "pinterest", "linkedin", "youtube", "houzz"])),
+  files: z.array(z.string()),
+  overrides: z.array(z.object({ platform: z.string(), caption: z.string() })),
+  note: z.string(),
+});
+
+export async function revisePost({ caption, platforms, refs, overrides, instruction }) {
+  if (!instruction?.trim()) throw new Error("instruction required");
+  const client = new Anthropic();
+  const cands = candidates();
+  let cat = {};
+  try { cat = JSON.parse(readFileSync(join(MEDIA, "_catalogue.json"), "utf-8")); } catch { /* */ }
+  const fileDesc = (f) => {
+    const e = Object.values(cat).find(x => x.file === f);
+    return e ? clean(e.shows) : "(no description)";
+  };
+  const response = await client.messages.parse({
+    model: "claude-sonnet-5",
+    max_tokens: 2500,
+    output_config: { format: zodOutputFormat(ReviseSchema), effort: "medium" },
+    system: VOICE,
+    messages: [{
+      role: "user",
+      content: `CURRENT POST COMPOSITION:
+caption: ${caption || "(empty)"}
+platforms: ${(platforms || []).join(", ") || "(none)"}
+photos (file → what it shows):
+${(refs || []).map(f => `- ${f} → ${fileDesc(f)}`).join("\n") || "(none)"}
+per-platform caption overrides: ${JSON.stringify(overrides || {})}
+
+ADDITIONAL photos you may swap in (file → shows):
+${cands.slice(0, 40).map(c => `- ${cat[c.label]?.file} → ${clean(c.shows)}`).join("\n")}
+
+JAKE'S INSTRUCTION: ${clean(instruction).slice(0, 500)}
+
+Apply the instruction and return the FULL revised composition: caption, platforms,
+files (keep current photos unless the instruction says otherwise — choose only from
+the lists above), overrides (only platforms that genuinely need different text), and
+"note": one sentence on what you changed. Change ONLY what the instruction asks.`,
+    }],
+  });
+  const parsed = response.parsed_output;
+  if (!parsed) throw new Error("revision unparseable");
+  if (VIOLATIONS.some(([re]) => re.test(parsed.caption))) throw new Error("revision violated house rules — rephrase the instruction");
+  const valid = new Set([...(refs || []), ...cands.map(c => cat[c.label]?.file).filter(Boolean)]);
+  parsed.files = parsed.files.filter(f => valid.has(f));
+  return parsed;
 }

@@ -9,7 +9,7 @@ import { listRfiJobs, getRfi, mediaCounts, updateRfiItem, recentMedia, thumbPath
 import { systemsOutcomes } from "./lib/systems.js";
 import { createGenRequest, listGenRequests } from "./lib/gen.js";
 import { createPost, listPosts, updatePostStatus } from "./lib/posts.js";
-import { suggestPosts, recordSuggestionFeedback } from "./lib/suggest.js";
+import { suggestPosts, recordSuggestionFeedback, listSuggestBatches, revisePost } from "./lib/suggest.js";
 import { unfurl } from "./lib/unfurl.js";
 import chokidar from "chokidar";
 import { homedir } from "os";
@@ -432,9 +432,16 @@ app.get("/api/media/thumb", (req, res) => {
 
 // AI suggestions — one metered sonnet call per click (~1-2¢), learning from the
 // suggestions log + Jake's queued posts. 30s timeout so a slow call can't hang the UI.
-app.post("/api/media/suggest", async (_req, res) => {
-  try { res.json({ ok: true, data: await suggestPosts() }); }
+app.post("/api/media/suggest", async (req, res) => {
+  try { res.json({ ok: true, data: await suggestPosts({ brief: req.body?.brief }) }); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.get("/api/media/suggest/history", (_req, res) => {
+  try { res.json({ ok: true, data: listSuggestBatches() }); } catch (e) { res.json({ ok: false, error: e.message }); }
+});
+app.post("/api/media/revise", async (req, res) => {
+  try { res.json({ ok: true, data: await revisePost(req.body || {}) }); }
+  catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
 app.post("/api/media/suggest/feedback", (req, res) => {
   try { res.json({ ok: true, data: recordSuggestionFeedback(req.body || {}) }); }

@@ -496,6 +496,56 @@ export default function PostBuilder() {
   const [scheduleAt, setScheduleAt] = useState("");
   const [extras, setExtras] = useState({ gbp: { type: "UPDATE", cta: "LEARN_MORE", ctaUrl: "", eventTitle: "", eventStart: "", eventEnd: "", couponCode: "" }, pinterest: { board: "", link: "" }, youtube: { title: "" } });
   const setExtra = (p, k, v) => setExtras(o => ({ ...o, [p]: { ...o[p], [k]: v } }));
+  const [steer, setSteer] = useState("");            // optional direction for generation
+  const [batches, setBatches] = useState([]);        // generation history, newest first
+  const [batchIdx, setBatchIdx] = useState(0);       // which batch is displayed
+  const [history, setHistory] = useState([]);        // composition undo stack
+  const [reviseText, setReviseText] = useState("");
+  const [revising, setRevising] = useState(false);
+  const [reviseNote, setReviseNote] = useState("");
+  const [listening, setListening] = useState(false);
+
+  const snapshot = () => ({ caption, refs, refsByPlatform, overrides, extras, on });
+  const pushHistory = () => setHistory(h => [...h.slice(-19), snapshot()]);
+  const goBack = () => setHistory(h => {
+    if (!h.length) return h;
+    const prev = h[h.length - 1];
+    setCaption(prev.caption); setRefs(prev.refs); setRefsByPlatform(prev.refsByPlatform);
+    setOverrides(prev.overrides); setExtras(prev.extras); setOn(prev.on);
+    return h.slice(0, -1);
+  });
+
+  // dictation via the browser's own speech recognition (Chrome) — no server audio path
+  const dictate = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { setReviseNote("This browser has no speech recognition — type it instead."); return; }
+    const rec = new SR();
+    rec.lang = "en-US"; rec.interimResults = false;
+    rec.onresult = (e) => setReviseText(t => (t ? t + " " : "") + e.results[0][0].transcript);
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    setListening(true); rec.start();
+  };
+
+  const revise = async () => {
+    if (!reviseText.trim() || revising) return;
+    setRevising(true); setReviseNote("");
+    try {
+      const r = await fetch("/api/media/revise", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caption, platforms: activePlatformsRef(), refs, overrides, instruction: reviseText }) });
+      const d = await r.json();
+      if (!d.ok) throw new Error(d.error);
+      pushHistory();
+      setCaption(d.data.caption);
+      setRefs(d.data.files.length ? d.data.files : refs);
+      setOn(o => Object.fromEntries(Object.keys(o).map(k => [k, d.data.platforms.includes(k)])));
+      setOverrides(Object.fromEntries(d.data.overrides.map(x => [x.platform, x.caption])));
+      setReviseNote(d.data.note || "changed");
+      setReviseText("");
+    } catch (e) { setReviseNote(String(e.message || e)); }
+    finally { setRevising(false); }
+  };
+  const activePlatformsRef = () => Object.keys(on).filter(k => on[k]);
   const [unfurls, setUnfurls] = useState({});
 
   useEffect(() => { fetch("/api/media/recent?bucket=postable&n=36").then(r => r.json()).then(d => setRecent(d.data || [])).catch(() => {}); }, []);
@@ -540,13 +590,19 @@ export default function PostBuilder() {
   const suggest = async () => {
     setIdeas([]);
     try {
-      const r = await fetch("/api/media/suggest", { method: "POST" });
+      const r = await fetch("/api/media/suggest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brief: steer || undefined }) });
       const d = await r.json();
-      if (d.ok) { setIdeas(d.data.ideas); setSugId(d.data.id); } else setIdeas(null);
+      if (d.ok) {
+        setIdeas(d.data.ideas); setSugId(d.data.id);
+        setBatches(b => [{ id: d.data.id, at: new Date().toISOString(), brief: steer || null, ideas: d.data.ideas }, ...b].slice(0, 10));
+        setBatchIdx(0);
+      } else setIdeas(null);
     } catch { setIdeas(null); }
   };
+  useEffect(() => { fetch("/api/media/suggest/history").then(r => r.json()).then(d => setBatches(d.data || [])).catch(() => {}); }, []);
   const fb = (body) => fetch("/api/media/suggest/feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const applyIdea = (idea) => {
+    pushHistory();
     setCaption(idea.caption);
     setRefs(idea.photos.map(p => p.file));
     setOn(o => Object.fromEntries(Object.keys(o).map(k => [k, idea.platforms.includes(k)])));
@@ -603,11 +659,32 @@ export default function PostBuilder() {
       <div style={{ display: "grid", gridTemplateColumns: "minmax(300px,1fr) minmax(300px,460px)", gap: 16, alignItems: "start" }}>
         <Section title="Compose">
           <div style={{ marginBottom: 12 }}>
-            <button onClick={suggest} disabled={ideas && ideas.length === 0}
-              style={{ padding: "8px 14px", background: "none", border: `1px solid ${BRAND.border}`, color: BRAND.focus, borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
-              {ideas && ideas.length === 0 ? "Thinking…" : "✨ Suggest 3 ideas"}
-            </button>
-            <span style={{ fontSize: 11, color: C.dim, marginLeft: 8 }}>AI picks captions AND photos — or build manually below.</span>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <input value={steer} onChange={e => setSteer(e.target.value)} onKeyDown={e => e.key === "Enter" && suggest()}
+                placeholder="Optional direction — e.g. 'metal shop progress, aimed at developers, no Santa photos'" style={inp} />
+              <button onClick={suggest} disabled={ideas && ideas.length === 0}
+                style={{ padding: "8px 14px", background: "none", border: `1px solid ${BRAND.border}`, color: BRAND.focus, borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+                {ideas && ideas.length === 0 ? "Thinking…" : "✨ Generate"}
+              </button>
+              {history.length > 0 && (
+                <button onClick={goBack} title="Undo last applied idea / revision"
+                  style={{ padding: "8px 12px", background: "none", border: `1px solid ${C.border}`, color: C.text, borderRadius: 8, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>↩ Back ({history.length})</button>
+              )}
+            </div>
+            {batches.length > 0 && !ideas && (
+              <div style={{ fontSize: 12, color: C.dim, display: "flex", gap: 8, alignItems: "center" }}>
+                <button onClick={() => { const b = batches[batchIdx] || batches[0]; setIdeas(b.ideas); setSugId(b.id); }}
+                  style={{ background: "none", border: `1px solid ${C.border}`, color: BRAND.link, borderRadius: 6, fontSize: 12, padding: "3px 10px", cursor: "pointer" }}>
+                  Reopen batch {batchIdx + 1}/{batches.length}
+                </button>
+                <button onClick={() => setBatchIdx(i => Math.min(batches.length - 1, i + 1))} disabled={batchIdx >= batches.length - 1} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer" }}>◀ older</button>
+                <button onClick={() => setBatchIdx(i => Math.max(0, i - 1))} disabled={batchIdx === 0} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer" }}>newer ▶</button>
+                {batches[batchIdx]?.brief && <span>"{batches[batchIdx].brief.slice(0, 50)}"</span>}
+              </div>
+            )}
+            {ideas && ideas.length > 0 && batches.length > 1 && (
+              <button onClick={() => setIdeas(null)} style={{ background: "none", border: "none", color: C.dim, fontSize: 12, cursor: "pointer", marginBottom: 4 }}>close ideas / browse history</button>
+            )}
           </div>
           {ideas && ideas.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
@@ -776,6 +853,25 @@ export default function PostBuilder() {
                 </div>
               )}
               {warns.map(w => <div key={w} style={{ marginTop: 6, fontSize: 12, color: "#D9A93B" }}>⚠ {w}</div>)}
+              {tab === "facebook" && text.length > PLATFORMS.facebook.trunc && (
+                <div style={{ marginTop: 6, fontSize: 12, color: C.dim }}>
+                  {Math.round((1 - PLATFORMS.facebook.trunc / text.length) * 100)}% of the body falls below "See more"
+                </div>
+              )}
+              <div style={{ marginTop: 14, padding: 10, border: `1px solid ${BRAND.border}`, borderRadius: 10 }}>
+                <div style={{ fontSize: 11, color: BRAND.focus, letterSpacing: 0.4, marginBottom: 6 }}>TELL ME WHAT TO CHANGE</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input value={reviseText} onChange={e => setReviseText(e.target.value)} onKeyDown={e => e.key === "Enter" && revise()}
+                    placeholder='e.g. "shorter, lead with the drone shot, drop LinkedIn"' style={inp} />
+                  <button onClick={dictate} title="Dictate"
+                    style={{ padding: "8px 12px", background: listening ? BRAND.accent : "none", border: `1px solid ${C.border}`, color: listening ? "#0C1017" : C.text, borderRadius: 8, cursor: "pointer" }}>🎤</button>
+                  <button onClick={revise} disabled={revising || !reviseText.trim()}
+                    style={{ padding: "8px 14px", background: BRAND.accent, color: "#0C1017", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer", opacity: revising || !reviseText.trim() ? 0.5 : 1, whiteSpace: "nowrap" }}>
+                    {revising ? "Working…" : "Do it"}
+                  </button>
+                </div>
+                {reviseNote && <div style={{ marginTop: 6, fontSize: 12, color: BRAND.focus }}>{reviseNote} — ↩ Back undoes it.</div>}
+              </div>
             </>
           )}
         </div>
