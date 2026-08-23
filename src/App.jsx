@@ -21,6 +21,7 @@ import ProjectsView from "./views/Projects";
 import LandFinderView from "./views/LandFinder";
 import SystemsView from "./views/Systems";
 import SessionsView from "./views/Sessions";
+import SkillsView from "./views/Skills";
 import ExpertiseView from "./views/Expertise";
 
 function BriefRoute() {
@@ -42,6 +43,7 @@ const NAV2 = [
   { to: "/money/bills", label: "Bills" },
   { to: "/systems", label: "Systems" },
   { to: "/sessions", label: "Sessions" },
+  { to: "/skills", label: "Skills" },
   { to: "/land", label: "Land" },
   { to: "/expertise", label: "Expertise" },
 ];
@@ -116,6 +118,7 @@ function Shell() {
           <Route path="/systems" element={<SystemsWrap healthData={healthData} />} />
           <Route path="/projects" element={<ProjectsView />} />
           <Route path="/sessions" element={<SessionsView />} />
+          <Route path="/skills" element={<SkillsView />} />
           <Route path="/land" element={<LandFinderView />} />
           <Route path="/expertise" element={<ExpertiseWrap />} />
           <Route path="*" element={<Navigate to="/" replace />} />

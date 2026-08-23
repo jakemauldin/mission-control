@@ -16,6 +16,7 @@ import {
   getSettings as getSessionSettings, saveSettings as saveSessionSettings, startAutoPark,
 } from "./lib/sessions.js";
 import { listTabs as listBrowserTabs, openUrl as openBrowserUrl, activate as activateBrowserTab, close as closeBrowserTab, isHttpUrl } from "./lib/kasm.js";
+import { listSkills, getSkill, saveSkill, createSkill, copySkill } from "./lib/skills.js";
 import chokidar from "chokidar";
 import { homedir } from "os";
 import { execDocker, execDockerJSON } from "./lib/docker.js";
@@ -39,6 +40,10 @@ const app = express();
 const server = createServer(app);
 const PORT = process.env.PORT || 3080;
 
+// A whole SKILL.md rides in the body (skill-creator is 33 KB; the lib caps at 512 KB), so
+// /api/skills gets a wider parser first; the default 100 KB one below then sees the body
+// as already parsed and skips it.
+app.use("/api/skills", express.json({ limit: "1mb" }));
 app.use(express.json());
 
 // ── Auth (DESIGN.md §7) ──────────────────────────────────────
@@ -650,6 +655,41 @@ app.post("/api/browser/tabs/:id/activate", async (req, res) => {
 app.post("/api/browser/tabs/:id/close", async (req, res) => {
   const r = await closeBrowserTab(req.params.id);
   res.status(r.ok ? 200 : r.notFound ? 404 : 502).json(r);
+});
+
+// ── Skills: every SKILL.md by area — read / edit / compose / deploy (lib/skills.js) ──
+// Names are kebab-case-only and every target is checked to stay under a known root in
+// the lib; container writes go through `docker exec` as node, never a restart.
+app.get("/api/skills", async (_req, res) => {
+  try { res.json({ ok: true, data: await listSkills() }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.get("/api/skills/:area/:name", async (req, res) => {
+  try {
+    const r = await getSkill(req.params.area, req.params.name);
+    res.status(r.ok ? 200 : r.error === "not found" ? 404 : 400).json(r);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.put("/api/skills/:area/:name", async (req, res) => {
+  try {
+    const r = await saveSkill(req.params.area, req.params.name, req.body?.content);
+    if (r.ok && !r.unchanged) broadcast({ type: "skills_update", time: new Date().toISOString() });
+    res.status(r.ok ? 200 : 400).json(r);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post("/api/skills", async (req, res) => {
+  try {
+    const r = await createSkill(req.body || {});
+    if (r.ok) broadcast({ type: "skills_update", time: new Date().toISOString() });
+    res.status(r.ok ? 200 : 400).json(r);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post("/api/skills/:area/:name/copy", async (req, res) => {
+  try {
+    const r = await copySkill(req.params.area, req.params.name, req.body?.areas, { overwrite: !!req.body?.overwrite });
+    if (r.ok) broadcast({ type: "skills_update", time: new Date().toISOString() });
+    res.status(r.ok ? 200 : 400).json(r);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 // ── Static build (DESIGN.md §7: one process serves dist/ + /api + /ws) ──
