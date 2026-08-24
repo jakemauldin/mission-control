@@ -92,6 +92,13 @@ function SettingsCard({ settings, onSave }) {
           <input type="checkbox" checked={!!form.autoPark} onChange={(e) => set("autoPark", e.target.checked)} style={{ width: 18, height: 18 }} />
         </label>
         <label style={label}>
+          <span>
+            <span style={{ fontWeight: 600, color: C.bright }}>Auto-revive pinned sessions</span>
+            <span style={{ display: "block", color: C.dim, fontSize: 11 }}>Checked every 15 min, and ~90s after the dashboard starts — so pinned sessions come back on their own after a reboot or OOM kill. Stopping a pinned session brings it back too: unpin first to keep one down.</span>
+          </span>
+          <input type="checkbox" checked={!!form.autoRevive} onChange={(e) => set("autoRevive", e.target.checked)} style={{ width: 18, height: 18 }} />
+        </label>
+        <label style={label}>
           <span>Idle threshold (hours)<span style={{ display: "block", color: C.dim, fontSize: 11 }}>No activity this long = parked. Revive brings it back any time.</span></span>
           <input type="number" min="0.5" step="0.5" value={form.parkHours} onChange={(e) => set("parkHours", e.target.value)} style={inputS} />
         </label>
@@ -152,7 +159,9 @@ export default function SessionsView() {
     try {
       const r = await fetch(`/api/sessions/${s.uuid}/${action}`, { method: "POST" });
       const body = await r.json();
-      setNote(body.message || (body.ok ? "Done" : "Failed"));
+      let m = body.message || (body.ok ? "Done" : "Failed");
+      if (action === "stop" && body.ok && s.pinned && settings?.autoRevive) m += " Note: it is pinned and auto-revive is on, so it comes back within 15 minutes — unpin it to keep it down.";
+      setNote(m);
     } catch (e) {
       setNote(e.message);
     } finally {

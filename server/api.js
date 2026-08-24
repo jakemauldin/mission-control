@@ -13,7 +13,7 @@ import { suggestPosts, recordSuggestionFeedback, listSuggestBatches, revisePost 
 import { unfurl } from "./lib/unfurl.js";
 import {
   listSessions, reviveSession, stopSession, pinSession, parkSessions, isUuid,
-  getSettings as getSessionSettings, saveSettings as saveSessionSettings, startAutoPark,
+  getSettings as getSessionSettings, saveSettings as saveSessionSettings, startAutoPark, startAutoRevive,
 } from "./lib/sessions.js";
 import { listTabs as listBrowserTabs, openUrl as openBrowserUrl, activate as activateBrowserTab, close as closeBrowserTab, isHttpUrl } from "./lib/kasm.js";
 import { listSkills, getSkill, saveSkill, createSkill, copySkill, deleteSkill, forkSkill } from "./lib/skills.js";
@@ -734,6 +734,7 @@ if (existsSync(DIST)) {
 
 // ── Start ────────────────────────────────────────────────────
 startAutoPark((msg) => broadcast({ type: "sessions_update", time: new Date().toISOString(), parked: msg }));
+startAutoRevive((msg) => broadcast({ type: "sessions_update", time: new Date().toISOString(), parked: msg }));
 
 server.listen(PORT, () => {
   console.log(`⚡ Rising Creek API → http://localhost:${PORT}`);
