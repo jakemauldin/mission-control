@@ -28,6 +28,16 @@ const inputS = {
   background: C.bg, color: C.text, fontFamily: "inherit", width: 90,
 };
 
+function proj(cwd) {
+  if (!cwd) return "";
+  const p = cwd.replace(/^\/home\/risingcreek\//, "~/");
+  if (/mission-control/.test(p)) return "mission-control";
+  if (p === "~/services") return "services";
+  if (p.startsWith("~/services/.claude/worktrees/")) return "services wt";
+  if (p.startsWith("~/services/")) return p.split("/")[1];
+  return p.replace("~/", "");
+}
+
 function SessionRow({ s, busy, onAction }) {
   const live = s.state === "live";
   const isDevice = s.how === "device";
@@ -40,7 +50,7 @@ function SessionRow({ s, busy, onAction }) {
           {s.pinned ? "📌 " : ""}{s.title}
         </div>
         <div style={{ fontSize: 11, color: C.dim, fontFamily: C.mono }}>
-          {live ? `live · ${HOW[s.how] || s.how}` : "off"} · {ago(s.lastActivity)} ago · {s.sizeKB >= 1024 ? `${(s.sizeKB / 1024).toFixed(1)} MB` : `${s.sizeKB} KB`}
+          {live ? `live · ${HOW[s.how] || s.how}` : "off"} · {ago(s.lastActivity)} ago · {s.sizeKB >= 1024 ? `${(s.sizeKB / 1024).toFixed(1)} MB` : `${s.sizeKB} KB`}{proj(s.cwd) ? ` · ${proj(s.cwd)}` : ""}
         </div>
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -109,6 +119,9 @@ export default function SessionsView() {
   const [busy, setBusy] = useState(null);
   const [note, setNote] = useState(null);
   const [parkPreview, setParkPreview] = useState(null);
+  const [q, setQ] = useState("");
+  const [stateF, setStateF] = useState("all");
+  const [showAll, setShowAll] = useState(false);
   const { lastMessage } = useWebSocket();
 
   const load = useCallback(async () => {
@@ -173,6 +186,16 @@ export default function SessionsView() {
 
   const live = data.filter((s) => s.state === "live").length;
   const wouldPark = parkPreview && !/^Nothing idle/.test(parkPreview);
+  // Search across EVERYTHING the server sent (all projects since 8/23), then trim to the
+  // "Sessions shown" setting only when no search/filter is active.
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = data.filter((s) => {
+    if (stateF !== "all" && s.state !== stateF) return false;
+    const hay = `${s.title} ${s.cwd || ""}`.toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
+  const filtering = words.length > 0 || stateF !== "all";
+  const shown = filtering || showAll ? matches : matches.slice(0, Number(settings?.listCount) || 15);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -182,6 +205,19 @@ export default function SessionsView() {
           <span style={{ flex: 1 }} />
           <button style={btnS(false)} disabled={!!busy} onClick={() => park(false)}>{busy === "park" ? "Checking…" : "Park idle now"}</button>
           <button style={btnS(false)} onClick={load}>Refresh</button>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search all sessions… (name or folder)"
+            style={{ ...inputS, width: 240, flex: "0 1 260px" }} />
+          {["all", "live", "stopped"].map((f) => (
+            <button key={f} onClick={() => setStateF(f)}
+              style={{ ...btnS(stateF === f), textTransform: "capitalize" }}>{f === "stopped" ? "Off" : f}</button>
+          ))}
+          <span style={{ fontSize: 11, color: C.dim }}>
+            showing {shown.length} of {data.length}
+          </span>
+          {!filtering && data.length > shown.length && <button style={btnS(false)} onClick={() => setShowAll(true)}>Show all {data.length}</button>}
+          {!filtering && showAll && <button style={btnS(false)} onClick={() => setShowAll(false)}>Show fewer</button>}
         </div>
         {note && <div style={{ fontSize: 12, color: C.text, padding: "8px 10px", background: "rgba(255,255,255,0.04)", borderRadius: 8, marginBottom: 6, whiteSpace: "pre-wrap" }}>{note}</div>}
         {parkPreview && (
@@ -193,10 +229,10 @@ export default function SessionsView() {
             </div>
           </div>
         )}
-        {data.length === 0 ? (
-          <div style={{ color: C.dim, fontSize: 13 }}>No sessions found</div>
+        {shown.length === 0 ? (
+          <div style={{ color: C.dim, fontSize: 13 }}>{data.length === 0 ? "No sessions found" : `Nothing matches "${q}"`}</div>
         ) : (
-          data.map((s) => <SessionRow key={s.uuid} s={s} busy={busy} onAction={act} />)
+          shown.map((s) => <SessionRow key={s.uuid} s={s} busy={busy} onAction={act} />)
         )}
       </Section>
       {settings && <SettingsCard settings={settings} onSave={saveSettings} />}

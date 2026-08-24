@@ -54,7 +54,10 @@ export function saveSettings(patch) {
 }
 
 export async function listSessions() {
-  const r = await run(["list", "--json"]);
+  // Full list, not just settings.listCount: the page trims to listCount for display but
+  // searches/filters across everything (99 qualified when this shipped). Same sort as
+  // Telegram's /sessions, so the /revive numbering index stays consistent.
+  const r = await run(["list", "--n", "400", "--json"]);
   if (!r.ok) return { ok: false, message: r.message, sessions: [] };
   try {
     const rows = JSON.parse(r.message);
