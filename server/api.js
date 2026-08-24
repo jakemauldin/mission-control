@@ -1,4 +1,5 @@
 import express from "express";
+import { execFile } from "child_process";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import { readdirSync, readFileSync, existsSync } from "fs";
@@ -511,6 +512,43 @@ app.post("/api/ap/pending-bills/:id/confirm", (req, res) => proxyToIntegration(r
 app.post("/api/ap/pending-bills/:id/reject", (req, res) => proxyToIntegration(req, res, `/api/pending-bills/${req.params.id}/reject`));
 app.get("/api/ap/open-bills", (req, res) => proxyToIntegration(req, res, "/api/open-bills"));
 app.post("/api/ap/match-wire", (req, res) => proxyToIntegration(req, res, "/api/open-bills/match-wire"));
+
+// ── Personal bills — proxy to bills-tracker (:3230) ─────────────────────────
+// SimpleFIN → SQLite → recurrence detection lives in ~/services/bills-tracker (its own
+// server, tailnet :3230). One writer, we read through its API — klass=household is
+// Personal+Jamie; the old UI queried bucket=Personal, a dimension the FCC rework
+// repurposed, which is why the personal view read as empty/stale while the DB was fresh.
+const BILLS_API = process.env.BILLS_API_URL || "http://100.92.25.23:3230";
+function proxyBills(path) {
+  return async (req, res) => {
+    try {
+      const qs = new URLSearchParams(req.query).toString();
+      const init = req.method === "GET" ? {} : { method: req.method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(req.body || {}) };
+      const r = await fetch(`${BILLS_API}${path}${qs ? "?" + qs : ""}`, init);
+      res.status(r.status).type("application/json").send(await r.text());
+    } catch (err) {
+      res.status(502).json({ ok: false, fallback: true, error: "bills-tracker unreachable: " + err.message });
+    }
+  };
+}
+app.get("/api/personal/bills", proxyBills("/api/bills"));
+app.get("/api/personal/summary", proxyBills("/api/summary"));
+app.get("/api/personal/debts", proxyBills("/api/debts"));
+app.get("/api/personal/accounts", proxyBills("/api/accounts"));
+app.post("/api/personal/bill/paid", proxyBills("/api/bill/paid"));
+// Sync now = the exact script cron runs 3×/day (SimpleFIN pull + re-detect + FCC post-sync).
+// Single-flight so mashing the button can't stack pulls; waits for the result (~10-40s).
+let billsSyncInFlight = null;
+app.post("/api/personal/sync", async (_req, res) => {
+  if (!billsSyncInFlight) {
+    billsSyncInFlight = new Promise((resolve) => {
+      execFile("bash", [join(homedir(), "services", "bills-tracker", "run-sync.sh")],
+        { timeout: 180_000, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024 },
+        (err, stdout, stderr) => resolve({ ok: !err, output: ((stdout || "") + "\n" + (stderr || "")).trim().slice(-900) }));
+    }).finally(() => setTimeout(() => { billsSyncInFlight = null; }, 100));
+  }
+  res.json(await billsSyncInFlight);
+});
 
 // ── Land Finder — proxy to property-finder-mcp (:3220) ───────
 // Property deal-sourcing connector (Zillow on-market land). Runs as a local
