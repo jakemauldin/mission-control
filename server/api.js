@@ -711,9 +711,23 @@ app.post("/api/skills/:area/:name/fork", async (req, res) => {
 // ── Static build (DESIGN.md §7: one process serves dist/ + /api + /ws) ──
 const DIST = join(import.meta.dirname, "..", "dist");
 if (existsSync(DIST)) {
-  app.use(express.static(DIST));
+  // Hashed assets cache forever, index.html never: each build deletes the old bundle, so a
+  // cached index.html pointing at a dead hash used to get the SPA fallback's HTML back AS
+  // the script (MIME mismatch → blank page after every deploy, 2026-08-24). Missing assets
+  // now 404 honestly and index.html is always revalidated.
+  app.use(express.static(DIST, {
+    index: false,
+    setHeaders: (res, path) => {
+      if (path.includes("/assets/")) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      else res.setHeader("Cache-Control", "no-cache");
+    },
+  }));
+  app.get(/^\/assets\//, (_req, res) => res.status(404).end());
   // SPA fallback: any non-API GET serves index.html so react-router owns the URL.
-  app.get(/^\/(?!api\/|ws$).*/, (_req, res) => res.sendFile(join(DIST, "index.html")));
+  app.get(/^\/(?!api\/|ws$).*/, (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache");
+    res.sendFile(join(DIST, "index.html"));
+  });
 } else {
   console.warn("⚠ dist/ not built — API-only mode (run `npm run build`)");
 }
