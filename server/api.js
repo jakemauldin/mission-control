@@ -806,8 +806,12 @@ if (existsSync(DIST)) {
 }
 
 // ── Start ────────────────────────────────────────────────────
-startAutoPark((msg) => broadcast({ type: "sessions_update", time: new Date().toISOString(), parked: msg }));
-startAutoRevive((msg) => broadcast({ type: "sessions_update", time: new Date().toISOString(), parked: msg }));
+// MC_TEST=1 marks a throwaway test copy (worktree, alternate PORT): it must never park or
+// revive real sessions, since the schedule lives in the shared ~/services/config/sessions.json.
+if (!process.env.MC_TEST) {
+  startAutoPark((msg) => broadcast({ type: "sessions_update", time: new Date().toISOString(), parked: msg }));
+  startAutoRevive((msg) => broadcast({ type: "sessions_update", time: new Date().toISOString(), parked: msg }));
+}
 
 server.listen(PORT, () => {
   console.log(`⚡ Rising Creek API → http://localhost:${PORT}`);
