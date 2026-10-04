@@ -28,6 +28,7 @@ export default function BillingView({ jobs }) {
   const splat = useParams()["*"] || "";
   const navigate = useNavigate();
   const wantApp = useRef(null);
+  const lastSplat = useRef(null);
   const [selectedJobId, setSelectedJobId] = useState("");
   const [sov, setSov] = useState(null);        // schedule of values
   const [billing, setBilling] = useState(null); // billing state
@@ -81,8 +82,17 @@ export default function BillingView({ jobs }) {
   // URL -> selected job. Waits for the jobs list so a job number can be resolved.
   useEffect(() => {
     const [jobKey, appNum] = splat.split("/").filter(Boolean);
-    if (!jobKey) { setSelectedJobId(""); return; }
+    if (!jobKey) {
+      lastSplat.current = splat;
+      setSelectedJobId(""); setSov(null); setBilling(null); setJobInfo(null);
+      setActiveApp(null); setLineItems({}); setSummary(null);
+      return;
+    }
     if (!jobs) return;
+    // useJobs polls and hands back a new array every time. Only act when the URL changed,
+    // or a poll would reset the grid to the app as first loaded and wipe unsaved edits.
+    if (lastSplat.current === splat) return;
+    lastSplat.current = splat;
     const j = jobs.find((x) => x.id === jobKey) || jobs.find((x) => String(x.number) === jobKey);
     const id = j ? j.id : jobKey;
     wantApp.current = appNum || null;
@@ -191,6 +201,8 @@ export default function BillingView({ jobs }) {
       await loadJob(selectedJobId);
       setActiveApp(r.data.number);
       setLineItems({});
+      // Keep the URL on the new app so the URL and the open app stay in step.
+      navigate(`/money/pay-apps/${selectedJobId}/${r.data.number}`, { replace: true });
     }
   };
 

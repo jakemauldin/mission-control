@@ -53,6 +53,8 @@ export default function JobDetail() {
   const address = jt?.location?.address || jt?.address || null;
   const costItems = jt?.costItems?.nodes || jt?.costItems || null;
   const itemCount = Array.isArray(costItems) ? costItems.length : null;
+  // A failed lookup comes back as {ok:false,error}, not null.
+  const found = !!(jt && jt.id);
   const status = jt?.closedOn ? `Closed ${new Date(jt.closedOn).toLocaleDateString()}` : "Open";
 
   return (
@@ -61,7 +63,7 @@ export default function JobDetail() {
         <Link to="/jobs" style={{ color: BRAND.link, fontSize: 13, textDecoration: "none" }}>← all jobs</Link>
         <h2 style={{ margin: "6px 0 2px", fontSize: 18, color: C.bright }}>{name}</h2>
         <div style={{ color: C.dim, fontSize: 12 }}>
-          {jt?.number ? `#${jt.number}` : ""}{customer ? ` · ${customer}` : ""}{` · ${status}`}
+          {found ? `${jt.number ? `#${jt.number}` : ""}${customer ? ` · ${customer}` : ""} · ${status}` : "Job not found"}
         </div>
         {address && <div style={{ color: C.dim, fontSize: 12 }}>{address}</div>}
       </div>
@@ -99,13 +101,13 @@ export default function JobDetail() {
             );
           })
         ) : (
-          <div style={{ color: C.dim }}>None yet. <Link to={`/money/pay-apps/${jtId}`} style={{ color: BRAND.link }}>Start one</Link></div>
+          <div style={{ color: C.dim }}>None yet.{found && <> <Link to={`/money/pay-apps/${jtId}`} style={{ color: BRAND.link }}>Start one</Link></>}</div>
         )}
       </Section>
 
       <Section title="JobTread">
-        {!ok && <div style={{ color: C.dim, marginBottom: 10 }}>JobTread unreachable</div>}
-        {jt ? (
+        {!ok && found && <div style={{ color: C.dim, marginBottom: 10 }}>JobTread unreachable</div>}
+        {found ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13, color: C.text }}>
             <div>Name: {jt.name || "—"}</div>
             {customer && <div>Customer: {customer}</div>}
@@ -115,7 +117,7 @@ export default function JobDetail() {
             <div style={{ color: C.dim, fontSize: 12, marginTop: 8 }}>JobTread is the system of record. This page is a read-only snapshot.</div>
           </div>
         ) : (
-          ok && <div style={{ color: C.dim }}>No data</div>
+          <div style={{ color: C.dim }}>Job not found in JobTread.</div>
         )}
       </Section>
     </div>
