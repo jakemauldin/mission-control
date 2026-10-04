@@ -1,5 +1,5 @@
 // RFI workspace, phase 2 interactivity (DESIGN.md §4): status changes, notes, draft-assist, live updates.
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useParams, useLocation } from "react-router-dom";
 import { C, BRAND } from "../lib/colors";
 import { Section } from "../components/ui/Card";
@@ -193,16 +193,32 @@ export function RfiJob() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    if (rfi && hash) setTimeout(() => document.querySelector(hash)?.scrollIntoView({ block: "center" }), 100);
+    if (rfi && hash) setTimeout(() => { try { document.querySelector(hash)?.scrollIntoView({ block: "center" }); } catch { /* bad hash */ } }, 100);
   }, [rfi, hash]);
 
   useEffect(() => {
     if (lastMessage?.type === "rfi_update" && String(lastMessage.jobId) === String(jobId)) load();
   }, [lastMessage, jobId, load]);
 
+  // Closing an item moves it into the collapsed Closed section and unmounts what had focus,
+  // so the next keypress would go nowhere. Hand focus to the next open item instead.
+  const nextFocus = useRef(null);
+  useEffect(() => {
+    const id = nextFocus.current;
+    if (!id) return;
+    nextFocus.current = null;
+    setFocusedId(id);
+    document.getElementById(`item-${id}`)?.focus();
+  }, [rfi]);
+
   // optimistic patch helper: patchItem(itemId, fields) mutates local state; patchItem(null,null,true) forces re-fetch
   const patchItem = (itemId, fields, forceReload) => {
     if (forceReload) { load(); return; }
+    if (fields?.status === "closed" && itemId === focusedId) {
+      const openIds = (rfi?.groups || []).flatMap(g => g.items || []).filter(it => it.status !== "closed").map(it => it.id);
+      const i = openIds.indexOf(itemId);
+      nextFocus.current = openIds[i + 1] || openIds[i - 1] || null;
+    }
     setRfi(prev => {
       if (!prev) return prev;
       return { ...prev, groups: prev.groups.map(g => ({
@@ -217,7 +233,8 @@ export function RfiJob() {
   const label = jobLabel(rfi);
   const open = it => it.status !== "closed";
   // a link to a closed item has to open the Closed section or there is nothing to scroll to
-  const hashId = hash ? decodeURIComponent(hash.replace(/^#item-/, "")) : "";
+  let hashId = hash ? hash.replace(/^#item-/, "") : "";
+  try { hashId = decodeURIComponent(hashId); } catch { /* malformed escape: use it raw */ }
   const hashClosed = (rfi.groups || []).some(g => (g.items || []).some(it => it.id === hashId && it.status === "closed"));
   const closedItems = (rfi.groups || []).flatMap(g => (g.items || []).filter(it => !open(it)).map(it => ({ it, group: g.name })));
   return (

@@ -64,7 +64,8 @@ function merged() {
   return rows;
 }
 
-// What the gallery's sidebar counts, so the dashboard number matches the page it links to.
+// Modelled on the gallery's sidebar counts. Not identical: the gallery applies pile rules
+// (trash, Needs you) this does not, so Unsorted and Trash can differ slightly from its page.
 // "undecided" = the gallery's Unsorted tab: no decision of any kind, not dumped, not trash.
 export function mediaCounts() {
   const rows = merged();
@@ -92,6 +93,7 @@ export function thumbPathFor(rel) {
 // no people or kids, no screenshot/document/reference flag, and not binned by the grader.
 export function isPostableJobPhoto(label, r, blocked) {
   if (!r || !r.file || blocked.has(label)) return false;
+  if (r.dontUse) return false;   // verdict dont-use = binned in the gallery
   if (/^(_dump|takeout|_derived)\//i.test(r.file)) return false;
   if (r.dumped || r.derived || r.personal || r.people || r.kids || r.shot || r.reference || r.unusable) return false;
   if (!r.job) return false;
@@ -99,12 +101,34 @@ export function isPostableJobPhoto(label, r, blocked) {
   return true;
 }
 
+// Labels the picker must never offer: personal, records, trash, and the gallery's
+// _vetoes list (it treats those as binned too).
+export function blockedSet() {
+  return new Set([...readList("_personal.json"), ...readList("_records.json"), ...readList("_trash.json"), ...readList("_vetoes.json")]);
+}
+
+// Shared with the Post builder's AI suggestions (server/lib/suggest.js should call this
+// instead of reading _catalogue.json itself). Same filter as the picker, newest first.
+export function postableCandidates(n = 70) {
+  const rows = merged();
+  const blocked = blockedSet();
+  const pool = [...new Set([...readList("_postable.json"), ...readList("_approved.json")])];
+  const out = [];
+  for (const label of pool.reverse()) {
+    const r = rows.get(label);
+    if (!isPostableJobPhoto(label, r, blocked) || !existsSync(thumbPathFor(r.file))) continue;
+    out.push({ label, file: r.file, shows: r.shows });
+    if (out.length >= n) break;
+  }
+  return out;
+}
+
 export function recentMedia(bucket = "postable", n = 24) {
   const listFile = { postable: "_postable.json", approved: "_approved.json" }[bucket];
   if (!listFile) return [];
   const labels = readList(listFile);
   const rows = merged();
-  const blocked = new Set([...readList("_personal.json"), ...readList("_records.json"), ...readList("_trash.json")]);
+  const blocked = blockedSet();
   const out = [];
   for (const label of labels.slice().reverse()) {   // newest additions last in file -> reverse
     const r = rows.get(label);
@@ -115,3 +139,6 @@ export function recentMedia(bucket = "postable", n = 24) {
   }
   return out;
 }
+
+// Warm the cache after startup so the first request does not stall on the 24 MB parse.
+setTimeout(() => { try { merged(); } catch { /* optional */ } }, 3000).unref();
