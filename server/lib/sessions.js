@@ -51,7 +51,10 @@ export function saveSettings(patch) {
   const tmp = SETTINGS_PATH + ".tmp";
   writeFileSync(tmp, JSON.stringify(next, null, 2));
   renameSync(tmp, SETTINGS_PATH);
-  noteSessionsChanged(); // pinned list changes the rows' pinned flag
+  // pinned list changes the rows' pinned flag; patch the changed rows so an in-flight run can't revert them
+  const was = new Set(cur.pinned || []), now = new Set(next.pinned || []);
+  for (const u of new Set([...was, ...now])) if (was.has(u) !== now.has(u)) afterPatch(u, { pinned: now.has(u) });
+  noteSessionsChanged();
   return next;
 }
 
@@ -61,7 +64,6 @@ export function saveSettings(patch) {
 // after boot can wait. A failed refresh keeps the last good copy (and says so).
 const REFRESH_MS = 60 * 1000;
 let cache = { sessions: null, at: 0, error: null };
-let inflight = null;
 
 async function fetchList() {
   // Full list, not just settings.listCount: the page trims to listCount for display but
@@ -84,16 +86,47 @@ async function fetchList() {
   }
 }
 
-// Single flight: concurrent callers share one python process.
-export function refreshSessions() {
-  if (!inflight) {
-    inflight = fetchList().then((r) => {
-      if (r.ok) cache = { sessions: r.sessions, at: Date.now(), error: null };
-      else cache = { ...cache, error: r.message };
-      return r;
-    }).finally(() => { inflight = null; });
+// Generation-aware single flight. A run that STARTED before an action read pre-action state,
+// so its result must not wipe the action's patch (Revive flipping back to Off), and nobody who
+// needs post-action truth may join it. Patches are kept per uuid and re-applied to any result
+// whose run started before the patch; an action during a run queues exactly one rerun.
+const patches = new Map(); // uuid -> { patch, at }
+let run_ = null;           // { startedAt, promise }
+let rerunWanted = false;
+
+function startRun() {
+  const startedAt = Date.now();
+  const promise = fetchList().then((r) => {
+    if (r.ok) {
+      const rows = r.sessions.map((s) => {
+        const p = patches.get(s.uuid);
+        return p && p.at >= startedAt ? { ...s, ...p.patch } : s;
+      });
+      for (const [u, p] of patches) if (p.at < startedAt) patches.delete(u); // this run saw it
+      cache = { sessions: rows, at: Date.now(), error: null };
+      return { ...r, sessions: rows };
+    }
+    cache = { ...cache, error: r.message };
+    return r;
+  }).finally(() => {
+    run_ = null;
+    if (rerunWanted) { rerunWanted = false; refreshSessions().catch(() => {}); }
+  });
+  run_ = { startedAt, promise };
+  return promise;
+}
+
+export function refreshSessions() { return run_ ? run_.promise : startRun(); }
+
+// For callers that act on the answer: wait out any run already in flight, then use one that
+// started after this call.
+async function refreshFresh() {
+  const t0 = Date.now();
+  for (;;) {
+    if (run_ && run_.startedAt >= t0) return run_.promise;
+    if (run_) await run_.promise.catch(() => {});
+    else return startRun();
   }
-  return inflight;
 }
 
 export async function listSessions() {
@@ -105,23 +138,29 @@ export async function listSessions() {
   }
   return {
     ok: true, sessions: cache.sessions, ageSec: Math.round((Date.now() - cache.at) / 1000),
-    refreshing: !!inflight, refreshError: cache.error || undefined,
+    refreshing: !!run_, refreshError: cache.error || undefined,
   };
 }
 
 // Auto-revive decides what to start from this list, so it never trusts the cache.
 export async function listSessionsFresh() {
-  const r = await refreshSessions();
+  const r = await refreshFresh();
   return r.ok ? { ok: true, sessions: r.sessions } : { ok: false, message: r.message, sessions: [] };
 }
 
-// After an action the cached copy would show the old state until the 12 s refresh lands, so
-// patch the one row we know changed, then refresh for the truth.
-function afterAction(uuid, patch) {
-  if (cache.sessions && patch) cache.sessions = cache.sessions.map((s) => (s.uuid === uuid ? { ...s, ...patch } : s));
-  refreshSessions().catch(() => {});
+// After an action the cached copy would show the old state until the refresh lands, so patch
+// the one row we know changed, remember the patch, then refresh for the truth.
+function afterPatch(uuid, patch) {
+  patches.set(uuid, { patch, at: Date.now() });
+  if (cache.sessions) cache.sessions = cache.sessions.map((s) => (s.uuid === uuid ? { ...s, ...patch } : s));
 }
-export function noteSessionsChanged() { refreshSessions().catch(() => {}); }
+function afterAction(uuid, patch) {
+  if (patch) afterPatch(uuid, patch);
+  noteSessionsChanged();
+}
+export function noteSessionsChanged() {
+  if (run_) rerunWanted = true; else startRun().catch(() => {});
+}
 // Warm at boot so the first page view is not the one that pays for it.
 setTimeout(() => refreshSessions().catch(() => {}), 3000).unref?.();
 
