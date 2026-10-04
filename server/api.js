@@ -536,6 +536,16 @@ app.get("/api/personal/summary", proxyBills("/api/summary"));
 app.get("/api/personal/debts", proxyBills("/api/debts"));
 app.get("/api/personal/accounts", proxyBills("/api/accounts"));
 app.post("/api/personal/bill/paid", proxyBills("/api/bill/paid"));
+// Bills sheet tab: the Drive workbook's rows + bank/email checks, edits, add, the editor job.
+app.get("/api/bills-sheet", proxyBills("/api/workbook"));
+app.get("/api/bills-sheet/jobs", proxyBills("/api/workbook/jobs"));
+app.get("/api/bills-sheet/email", proxyBills("/api/workbook/email"));
+app.post("/api/bills-sheet/row", proxyBills("/api/workbook/row"));
+app.post("/api/bills-sheet/add", proxyBills("/api/workbook/add"));
+app.post("/api/bills-sheet/publish", proxyBills("/api/workbook/publish"));
+app.post("/api/bills-sheet/editor", proxyBills("/api/workbook/editor"));
+app.post("/api/bills-sheet/sheet-row", proxyBills("/api/sheet/row"));
+app.post("/api/bills-sheet/sheet-paid", proxyBills("/api/sheet/paid"));
 // Sync now = the exact script cron runs 3×/day (SimpleFIN pull + re-detect + FCC post-sync).
 // Single-flight so mashing the button can't stack pulls; waits for the result (~10-40s).
 let billsSyncInFlight = null;
