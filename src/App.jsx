@@ -11,6 +11,7 @@ import MoreMenu from "./components/MoreMenu";
 import MoneyTabs from "./components/MoneyTabs";
 import HeaderSlot from "./components/HeaderSlot";
 import GlobalLayer from "./components/GlobalLayer";
+import { PresenceProvider } from "./hooks/usePresence";
 import NavIcon from "./components/NavIcons";
 
 import Brief from "./views/Brief";
@@ -91,6 +92,7 @@ function Shell() {
   });
 
   return (
+    <PresenceProvider>
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'IBM Plex Sans',-apple-system,sans-serif" }}>
       <div className="rc-shell" style={{ maxWidth: 1500, margin: "0 auto" }}>
         {/* One row at every width: dot, logo, (desktop nav), slot, ⋯ */}
@@ -150,6 +152,7 @@ function Shell() {
       </nav>
       <GlobalLayer />
     </div>
+    </PresenceProvider>
   );
 }
 

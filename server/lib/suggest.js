@@ -8,11 +8,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { readFileSync, appendFileSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { randomBytes } from "crypto";
 import { listPosts } from "./posts.js";
-import { thumbPathFor } from "./rfis.js";
+import { postableCandidates } from "./media.js";
 
 const MEDIA = "/mnt/rc_media/media-library/rising-creek";
 const LOG = join(import.meta.dirname, "..", "data", "post-suggestions.jsonl");
@@ -26,20 +26,11 @@ const IdeaSchema = z.object({
   })).length(3),
 });
 
+// Same privacy filter as the Media picker (media.js): only real job photos, never the
+// takeout/_dump phone piles, personal/records/trash, vetoed, or anything showing people.
+// Reading _catalogue.json directly here used to offer screenshots and family photos.
 function candidates() {
-  const read = (f) => { try { const d = JSON.parse(readFileSync(join(MEDIA, f), "utf-8")); return Array.isArray(d) ? d : Object.keys(d); } catch { return []; } };
-  let cat = {};
-  try { cat = JSON.parse(readFileSync(join(MEDIA, "_catalogue.json"), "utf-8")); } catch { return []; }
-  const pool = new Set([...read("_postable.json"), ...read("_approved.json")]);
-  const out = [];
-  for (const label of [...pool].reverse()) {
-    const e = cat[label];
-    if (!e?.file || (e.quality || 0) < 6) continue;
-    if (!existsSync(thumbPathFor(e.file))) continue;
-    out.push({ label, shows: e.shows, scope: e.scope, stage: e.stage, quality: e.quality });
-    if (out.length >= 70) break;
-  }
-  return out;
+  return postableCandidates(140).filter(c => c.quality == null || c.quality >= 6).slice(0, 70);
 }
 
 function publishedBlock() {
@@ -135,12 +126,11 @@ for the idea's territory (used for the feedback loop).`,
   // dropped before Jake ever sees it (client lint only warns, and only per-tab).
   parsed.ideas = parsed.ideas.filter(i => !VIOLATIONS.some(([re]) => re.test(i.caption)));
   if (!parsed.ideas.length) throw new Error("all ideas violated house rules — try again");
-  // map labels → files, drop hallucinated labels
-  let cat = {};
-  try { cat = JSON.parse(readFileSync(join(MEDIA, "_catalogue.json"), "utf-8")); } catch { /* */ }
+  // map labels → files through the vetted candidate list only; anything else is dropped
+  const byLabel = new Map(cands.map(c => [c.label, c.file]));
   const ideas = parsed.ideas.map((i, idx) => ({
     ...i, index: idx,
-    photos: i.photoLabels.map(l => cat[l]?.file ? { label: l, file: cat[l].file } : null).filter(Boolean),
+    photos: i.photoLabels.map(l => byLabel.has(l) ? { label: l, file: byLabel.get(l) } : null).filter(Boolean),
   }));
   mkdirSync(join(import.meta.dirname, "..", "data"), { recursive: true });
   appendFileSync(LOG, JSON.stringify({ id, at: new Date().toISOString(), action: "shown", angles: ideas.map(i => i.angle) }) + "\n");
@@ -173,6 +163,8 @@ export async function revisePost({ caption, platforms, refs, overrides, instruct
   let cat = {};
   try { cat = JSON.parse(readFileSync(join(MEDIA, "_catalogue.json"), "utf-8")); } catch { /* */ }
   const fileDesc = (f) => {
+    const c = cands.find(x => x.file === f);
+    if (c) return clean(c.shows);
     const e = Object.values(cat).find(x => x.file === f);
     return e ? clean(e.shows) : "(no description)";
   };
@@ -191,7 +183,7 @@ ${(refs || []).map(f => `- ${f} → ${fileDesc(f)}`).join("\n") || "(none)"}
 per-platform caption overrides: ${JSON.stringify(overrides || {})}
 
 ADDITIONAL photos you may swap in (file → shows):
-${cands.slice(0, 40).map(c => `- ${cat[c.label]?.file} → ${clean(c.shows)}`).join("\n")}
+${cands.slice(0, 40).map(c => `- ${c.file} → ${clean(c.shows)}`).join("\n")}
 
 JAKE'S INSTRUCTION: ${clean(instruction).slice(0, 500)}
 
@@ -204,7 +196,7 @@ the lists above), overrides (only platforms that genuinely need different text),
   const parsed = response.parsed_output;
   if (!parsed) throw new Error("revision unparseable");
   if (VIOLATIONS.some(([re]) => re.test(parsed.caption))) throw new Error("revision violated house rules — rephrase the instruction");
-  const valid = new Set([...(refs || []), ...cands.map(c => cat[c.label]?.file).filter(Boolean)]);
+  const valid = new Set([...(refs || []), ...cands.map(c => c.file)]);
   parsed.files = parsed.files.filter(f => valid.has(f));
   return parsed;
 }

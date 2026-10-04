@@ -1,5 +1,7 @@
-// Placeholder. The ring feature fills this in (sits in the header between the logo
-// and the ⋯ button; the shell leaves room for a ~96px pill).
+// Header slot between the logo and the ⋯ button: the open sign (Jake, 10/4: "the open
+// sign can be on the dashboard"). Renders nothing outside a PresenceProvider.
+import OpenSign from "./OpenSign";
+
 export default function HeaderSlot() {
-  return null;
+  return <OpenSign />;
 }

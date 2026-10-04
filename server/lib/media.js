@@ -117,7 +117,7 @@ export function postableCandidates(n = 70) {
   for (const label of pool.reverse()) {
     const r = rows.get(label);
     if (!isPostableJobPhoto(label, r, blocked) || !existsSync(thumbPathFor(r.file))) continue;
-    out.push({ label, file: r.file, shows: r.shows });
+    out.push({ label, file: r.file, shows: r.shows, scope: r.scope, stage: r.stage, quality: r.quality });
     if (out.length >= n) break;
   }
   return out;

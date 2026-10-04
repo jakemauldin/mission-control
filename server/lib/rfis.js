@@ -33,20 +33,6 @@ export function getRfi(jobId) {
   try { return { dir: d, jobId: d.split("-")[0], ...JSON.parse(readFileSync(f, "utf-8")) }; } catch { return null; }
 }
 
-// Media counts for the /media strip — same undecided logic as the Brief's tier 5.
-const MEDIA = "/mnt/rc_media/media-library/rising-creek";
-export function mediaCounts() {
-  const read = (f) => { try { const d = JSON.parse(readFileSync(join(MEDIA, f), "utf-8")); return Array.isArray(d) ? d : Object.keys(d); } catch { return []; } };
-  const cat = read("_catalogue.json");
-  const buckets = { approved: read("_approved.json"), postable: read("_postable.json"), trash: read("_trash.json"), records: read("_records.json"), personal: read("_personal.json") };
-  const decided = new Set(Object.values(buckets).flat());
-  return {
-    catalogued: cat.length,
-    undecided: cat.filter(k => !decided.has(k)).length,
-    ...Object.fromEntries(Object.entries(buckets).map(([k, v]) => [k, v.length])),
-  };
-}
-
 // Phase 2: the ONLY write path. Two fields, validated, atomic tmp+rename (same
 // pattern as lib/projects.js). Regenerating RFI-LOG.md stays out of scope — the
 // script that renders markdown keeps owning it.
@@ -77,31 +63,4 @@ export function updateRfiItem(jobId, itemId, { status, note }) {
   writeFileSync(tmp, JSON.stringify(rfi, null, 2));
   renameSync(tmp, f);
   return { ok: true, item };
-}
-
-// Media visuals: thumbnails already exist in _thumbs (gallery's cache-first scheme:
-// key = rel path with non-alnum → "_" + "_340.jpg"). We serve ONLY from the cache,
-// never generate — the gallery owns generation.
-export function thumbPathFor(rel) {
-  const key = String(rel).replace(/[^A-Za-z0-9]/g, "_") + "_340.jpg";
-  return join(MEDIA, "_thumbs", key);
-}
-
-export function recentMedia(bucket = "postable", n = 24) {
-  const listFile = { postable: "_postable.json", approved: "_approved.json" }[bucket];
-  if (!listFile) return [];
-  let labels = [];
-  try { const d = JSON.parse(readFileSync(join(MEDIA, listFile), "utf-8")); labels = Array.isArray(d) ? d : Object.keys(d); } catch { return []; }
-  let cat = {};
-  try { cat = JSON.parse(readFileSync(join(MEDIA, "_catalogue.json"), "utf-8")); } catch { /* thin result */ }
-  const out = [];
-  for (const label of labels.slice().reverse()) {   // newest additions last in file → reverse
-    const entry = cat[label];
-    const file = entry?.file;
-    if (!file) continue;
-    if (!existsSync(thumbPathFor(file))) continue;  // only show what can render
-    out.push({ label, file, shows: entry.shows || "" });
-    if (out.length >= n) break;
-  }
-  return out;
 }

@@ -16,10 +16,10 @@ import process from "process";
 import { execDocker } from "./docker.js";
 import { systemsOutcomes } from "./systems.js";
 import { loadStore, parseInflight } from "./projects.js";
+import { mediaCounts } from "./media.js";
 
 const HOME = homedir();
 const JOBS_DIR = join(HOME, "services", "rising-creek", "jobs");
-const MEDIA_STATE = join("/mnt/rc_media/media-library/rising-creek");
 const LOGS = join(HOME, "services", "logs");
 const STATE_FILE = join(import.meta.dirname, "..", "data", "brief-state.json");
 
@@ -107,14 +107,18 @@ export async function decideNeed(id, action) {
 // is red there. One row per red card, plus the overall verdict.
 async function tier1Systems() {
   const s = await withTimeout(systemsOutcomes(), 8000);
-  const cards = [...(s.backups || []), ...(s.disk || []), ...(s.crons || []), ...(s.containers || []), ...(s.kernel ? [s.kernel] : [])];
+  const cards = [...(s.backups || []), ...(s.disk || []), ...(s.crons || []), ...(s.memory || []), ...(s.containers || []), ...(s.kernel ? [s.kernel] : [])];
   const red = cards.filter(c => !c.ok);
   const rows = red.map(c => ({
     tier: 1, key: `sys:${c.kind || "x"}:${c.name}`, title: `${c.name}${c.detail ? `: ${c.detail}` : ""}`,
     age: c.ageHours ? c.ageHours * 3600000 : 0, link: "/systems",
   }));
-  if (s.overall === "RED") rows.unshift({ tier: 1, key: "sys:overall", title: `Systems overall is RED (${red.length} card${red.length === 1 ? "" : "s"})`, age: 0, link: "/systems" });
-  return { rows, overall: s.overall, redCount: red.length };
+  // The health snapshot can be RED with every live card green; name it so the row says why.
+  if (s.health?.status === "RED") rows.push({
+    tier: 1, key: "sys:health-snapshot", title: `Daily health check is RED: ${(s.health.reasons || []).slice(0, 2).join(", ") || s.health.detail || "see Systems"}`,
+    age: s.health.ageHours ? s.health.ageHours * 3600000 : 0, link: "/systems",
+  });
+  return { rows, overall: s.overall, redCount: rows.length };
 }
 
 // Needs-Jake items filed by the voice-dump bots, still open.
@@ -221,18 +225,10 @@ function payApps() {
   return { rows: items };
 }
 
-// Tier 5: media awaiting a bucket decision. One batched row, never one per photo.
-// Count = catalogue entries with no decision in any bucket list (DESIGN.md §2, corrected).
+// Tier 5: photos waiting on a grade. Same count as the Media page and the gallery's
+// Unsorted tab (media.js), one batched row, hidden at zero.
 function tier5Media() {
-  const cat = JSON.parse(readFileSync(join(MEDIA_STATE, "_catalogue.json"), "utf-8"));
-  const decided = new Set();
-  for (const f of ["_approved.json", "_postable.json", "_trash.json", "_records.json", "_personal.json"]) {
-    try {
-      const d = JSON.parse(readFileSync(join(MEDIA_STATE, f), "utf-8"));
-      for (const k of Array.isArray(d) ? d : Object.keys(d)) decided.add(k);
-    } catch { /* absent list = nothing decided there */ }
-  }
-  const undecided = Object.keys(cat).filter(k => !decided.has(k)).length;
+  const undecided = mediaCounts().undecided;
   return { rows: undecided > 0 ? [{ tier: 5, key: "media:ungraded", title: `${undecided} photos to grade`, age: 0, link: "/media" }] : [], photos: undecided };
 }
 

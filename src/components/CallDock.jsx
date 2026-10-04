@@ -29,7 +29,11 @@ export default function CallDock({ call, onClose }) {
         else setErr("No voice token on the server. Paste it once on the voice page.");
       } else if (d.type === "vd-call-state") {
         if (d.state === "ended") { try { popRef.current?.close(); } catch { /* already closed */ } onClose(); }
-        else if (d.state === "error") setErr(typeof d.message === "string" && d.message ? d.message.slice(0, 200) : "The call hit an error.");
+        else if (d.state === "error") {
+          // voice-dump sends the reason as `detail` (contract); `message` kept for older pages
+          const why = typeof d.detail === "string" && d.detail ? d.detail : typeof d.message === "string" ? d.message : "";
+          setErr(why ? why.slice(0, 200) : "The call hit an error.");
+        }
       }
     };
     window.addEventListener("message", onMsg);
