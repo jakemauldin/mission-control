@@ -22,7 +22,7 @@ import LandFinderView from "./views/LandFinder";
 import SystemsView from "./views/Systems";
 import SessionsView from "./views/Sessions";
 import SkillsView from "./views/Skills";
-import PersonalBillsView from "./views/PersonalBills";
+import BillsSheetView from "./views/BillsSheet";
 import ExpertiseView from "./views/Expertise";
 
 function BriefRoute() {
@@ -42,7 +42,7 @@ const NAV = [
 const NAV2 = [
   { to: "/projects", label: "Projects" },
   { to: "/money/bills", label: "Bills" },
-  { to: "/money/personal", label: "Personal" },
+  { to: "/money/sheet", label: "Bills sheet" },
   { to: "/systems", label: "Systems" },
   { to: "/sessions", label: "Sessions" },
   { to: "/skills", label: "Skills" },
@@ -113,7 +113,8 @@ function Shell() {
           <Route path="/money" element={<Navigate to="/money/pay-apps" replace />} />
           <Route path="/money/pay-apps/*" element={<BillingView jobs={jobsData.jobs} />} />
           <Route path="/money/bills" element={<OpenBillsView jobs={jobsData.jobs} />} />
-          <Route path="/money/personal" element={<PersonalBillsView />} />
+          <Route path="/money/sheet" element={<BillsSheetView />} />
+          <Route path="/money/personal" element={<Navigate to="/money/sheet" replace />} />
           <Route path="/rfis" element={<RfiIndex />} />
           <Route path="/rfis/:jobId" element={<RfiJob />} />
           <Route path="/media" element={<Media />} />
