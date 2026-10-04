@@ -21,7 +21,7 @@ import { listTabs as listBrowserTabs, openUrl as openBrowserUrl, activate as act
 import { listSkills, getSkill, saveSkill, createSkill, copySkill, deleteSkill, forkSkill } from "./lib/skills.js";
 import chokidar from "chokidar";
 import { homedir } from "os";
-import { execDocker, execDockerJSON } from "./lib/docker.js";
+import { execDocker, execDockerJSON, getClawStatus } from "./lib/docker.js";
 import { getJobs, getJobDetail } from "./lib/jobtread.js";
 import {
   getSettings, saveSettings,
@@ -132,11 +132,11 @@ app.get("/api/jobs", async (_req, res) => {
 
 // ── OpenClaw status ──────────────────────────────────────────
 app.get("/api/claw/status", async (_req, res) => {
-  const result = await execDockerJSON("openclaw status --json");
+  const result = await getClawStatus();
   if (!result.ok) {
     return res.json({ ok: false, fallback: true, error: result.error });
   }
-  res.json({ ok: true, data: result.data });
+  res.json({ ok: true, data: result.data, ageSec: result.ageSec, refreshError: result.refreshError });
 });
 
 // ── OpenClaw insights ────────────────────────────────────────
@@ -634,7 +634,7 @@ setInterval(async () => {
   if (clients.size === 0) return;
 
   // Poll claw status
-  const clawResult = await execDockerJSON("openclaw status --json");
+  const clawResult = await getClawStatus(); // cached, so this poll no longer spawns a 10 s docker exec
   if (clawResult.ok) {
     const hash = JSON.stringify(clawResult.data);
     if (hash !== lastHealthHash) {
@@ -663,7 +663,7 @@ setInterval(async () => {
 // ── Sessions: list / revive / stop / pin / park Claude Code sessions (lib/sessions.js) ──
 app.get("/api/sessions", async (_req, res) => {
   const r = await listSessions();
-  res.status(r.ok ? 200 : 500).json({ ok: r.ok, data: r.sessions, settings: getSessionSettings(), message: r.message });
+  res.status(r.ok ? 200 : 500).json({ ok: r.ok, data: r.sessions, settings: getSessionSettings(), message: r.message, ageSec: r.ageSec, refreshing: r.refreshing, refreshError: r.refreshError });
 });
 app.get("/api/sessions/settings", (_req, res) => res.json({ ok: true, data: getSessionSettings() }));
 app.put("/api/sessions/settings", (req, res) => res.json({ ok: true, data: saveSessionSettings(req.body || {}) }));

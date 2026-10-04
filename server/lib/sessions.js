@@ -51,15 +51,24 @@ export function saveSettings(patch) {
   const tmp = SETTINGS_PATH + ".tmp";
   writeFileSync(tmp, JSON.stringify(next, null, 2));
   renameSync(tmp, SETTINGS_PATH);
+  noteSessionsChanged(); // pinned list changes the rows' pinned flag
   return next;
 }
 
-export async function listSessions() {
+// sessions.py re-parses every transcript on each call (~12 s, 7.8k files), so the page never
+// waits on it: one in-memory copy is served instantly with its age, refreshed in the
+// background when older than REFRESH_MS and right after any action. Only the first request
+// after boot can wait. A failed refresh keeps the last good copy (and says so).
+const REFRESH_MS = 60 * 1000;
+let cache = { sessions: null, at: 0, error: null };
+let inflight = null;
+
+async function fetchList() {
   // Full list, not just settings.listCount: the page trims to listCount for display but
   // searches/filters across everything (99 qualified when this shipped). Same sort as
   // Telegram's /sessions, so the /revive numbering index stays consistent.
-  const r = await run(["list", "--n", "400", "--json"]);
-  if (!r.ok) return { ok: false, message: r.message, sessions: [] };
+  const r = await run(["list", "--n", "400", "--json"], 90000);
+  if (!r.ok) return { ok: false, message: r.message };
   try {
     const rows = JSON.parse(r.message);
     return {
@@ -71,15 +80,57 @@ export async function listSessions() {
       })),
     };
   } catch (e) {
-    return { ok: false, message: `bad list output: ${e.message}`, sessions: [] };
+    return { ok: false, message: `bad list output: ${e.message}` };
   }
 }
 
+// Single flight: concurrent callers share one python process.
+export function refreshSessions() {
+  if (!inflight) {
+    inflight = fetchList().then((r) => {
+      if (r.ok) cache = { sessions: r.sessions, at: Date.now(), error: null };
+      else cache = { ...cache, error: r.message };
+      return r;
+    }).finally(() => { inflight = null; });
+  }
+  return inflight;
+}
+
+export async function listSessions() {
+  if (!cache.sessions) {
+    const r = await refreshSessions();
+    if (!r.ok) return { ok: false, message: r.message, sessions: [] };
+  } else if (Date.now() - cache.at > REFRESH_MS) {
+    refreshSessions().catch(() => {});
+  }
+  return {
+    ok: true, sessions: cache.sessions, ageSec: Math.round((Date.now() - cache.at) / 1000),
+    refreshing: !!inflight, refreshError: cache.error || undefined,
+  };
+}
+
+// Auto-revive decides what to start from this list, so it never trusts the cache.
+export async function listSessionsFresh() {
+  const r = await refreshSessions();
+  return r.ok ? { ok: true, sessions: r.sessions } : { ok: false, message: r.message, sessions: [] };
+}
+
+// After an action the cached copy would show the old state until the 12 s refresh lands, so
+// patch the one row we know changed, then refresh for the truth.
+function afterAction(uuid, patch) {
+  if (cache.sessions && patch) cache.sessions = cache.sessions.map((s) => (s.uuid === uuid ? { ...s, ...patch } : s));
+  refreshSessions().catch(() => {});
+}
+export function noteSessionsChanged() { refreshSessions().catch(() => {}); }
+// Warm at boot so the first page view is not the one that pays for it.
+setTimeout(() => refreshSessions().catch(() => {}), 3000).unref?.();
+
 export function isUuid(u) { return UUID.test(u || ""); }
-export const reviveSession = (uuid) => run(["revive", uuid], 200000);
-export const stopSession = (uuid) => run(["stop", uuid]);
-export const pinSession = (uuid, on) => run([on ? "pin" : "unpin", uuid]);
-export const parkSessions = (apply) => run(["park", ...(apply ? ["--apply"] : [])], 60000);
+const acting = (fn, patch) => async (...a) => { const r = await fn(...a); if (r.ok) afterAction(a[0], patch?.(...a)); return r; };
+export const reviveSession = acting((uuid) => run(["revive", uuid], 200000), () => ({ state: "live", how: "revived" }));
+export const stopSession = acting((uuid) => run(["stop", uuid]), () => ({ state: "stopped" }));
+export const pinSession = acting((uuid, on) => run([on ? "pin" : "unpin", uuid]), (_u, on) => ({ pinned: !!on }));
+export const parkSessions = async (apply) => { const r = await run(["park", ...(apply ? ["--apply"] : [])], 60000); if (r.ok && apply) noteSessionsChanged(); return r; };
 
 // Auto-park: the dashboard process is the scheduler. Nothing runs unless settings.autoPark
 // is true, and the script re-checks the flag itself (--auto). Failure mode is "nothing parked",
@@ -105,7 +156,7 @@ const reviveFails = new Map();
 export async function runAutoRevive(onMsg) {
   const cfg = getSettings();
   if (!cfg.autoRevive || !cfg.pinned?.length) return { checked: 0, revived: 0 };
-  const list = await listSessions();
+  const list = await listSessionsFresh();
   if (!list.ok) return { checked: 0, revived: 0, error: list.message };
   const dead = list.sessions.filter((s) => s.state !== "live" && cfg.pinned.includes(s.uuid));
   let revived = 0;
