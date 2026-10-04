@@ -12,7 +12,10 @@
 import { readFileSync, readdirSync, writeFileSync, renameSync, existsSync, statSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import process from "process";
 import { execDocker } from "./docker.js";
+import { systemsOutcomes } from "./systems.js";
+import { loadStore, parseInflight } from "./projects.js";
 
 const HOME = homedir();
 const JOBS_DIR = join(HOME, "services", "rising-creek", "jobs");
@@ -22,7 +25,7 @@ const STATE_FILE = join(import.meta.dirname, "..", "data", "brief-state.json");
 
 // ── snooze store ─────────────────────────────────────────────
 function loadState() {
-  try { return JSON.parse(readFileSync(STATE_FILE, "utf-8")); } catch { return { snoozes: {} }; }
+  try { const st = JSON.parse(readFileSync(STATE_FILE, "utf-8")); return { ...st, snoozes: st.snoozes || {} }; } catch { return { snoozes: {} }; }
 }
 function saveState(st) {
   const tmp = STATE_FILE + ".tmp";
@@ -34,68 +37,172 @@ export function snoozeItem(key, untilIso) {
   const cur = st.snoozes[key] || { count: 0 };
   st.snoozes[key] = { until: untilIso, count: cur.count + 1 };
   saveState(st);
+  invalidateBrief(); // the row must vanish on the very next fetch, not after the 60s memo
   return st.snoozes[key];
 }
+export function unsnoozeItem(key) {
+  const st = loadState();
+  if (key === "*") st.snoozes = {};
+  else delete st.snoozes[key]; // dropping the entry also drops the "snoozed Nx" counter; fine for a manual undo
+  saveState(st);
+  invalidateBrief();
+}
+// Snoozed rows still active right now, for the "N snoozed" list. Titles come from the
+// last build so the list reads like the queue did; a key that no longer exists is skipped.
+export async function listSnoozed() {
+  const st = loadState(), now = Date.now();
+  const { raw } = await build();
+  const byKey = new Map(raw.map(r => [r.key, r]));
+  return Object.entries(st.snoozes)
+    .filter(([, s]) => Date.parse(s.until) > now)
+    .map(([key, s]) => ({ key, until: s.until, count: s.count, title: byKey.get(key)?.title || key, tier: byKey.get(key)?.tier || null }))
+    .filter(s => byKey.has(s.key));
+}
+
+const DAY = 86400000;
+// Every external source gets a hard timeout and fails soft into a chip.
+const SRC_TIMEOUT = 4000;
+async function getJson(url, ms = SRC_TIMEOUT, init) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(url, { ...init, signal: ctl.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+const VOICE_DUMP = () => process.env.VOICE_DUMP_URL || "http://127.0.0.1:3240";
+const INTEGRATION = () => process.env.INTEGRATION_API_URL || "http://172.18.0.7:3090";
+const BILLS_TRACKER = () => process.env.BILLS_TRACKER_URL || "http://100.92.25.23:3230";
+const ASKJAKE_PENDING = () => join(process.env.ASKJAKE_DECISIONS_DIR || join(HOME, "services", "jake-decisions"), ".pending.json");
+
+// Proxy for the Allow / Drop buttons: voice-dump owns the decision and its side effects.
+export async function decideNeed(id, action) {
+  if (!/^[\w-]{1,40}$/.test(String(id))) throw new Error("bad id");
+  if (action !== "allow" && action !== "drop") throw new Error("action must be allow or drop");
+  // voice-dump records the decision first, then awaits the agent run on allow, which can outlast
+  // our timeout. An abort therefore means "sent", not "failed"; a retry would only hit "already decided".
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 8000);
+  try {
+    const r = await fetch(`${VOICE_DUMP()}/live/ceo/decide`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action }), signal: ctl.signal,
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || j.message || `HTTP ${r.status}`);
+    return j;
+  } catch (e) {
+    if (e.name === "AbortError") return { sent: true, note: "Sent. It is still running; the list updates on the next load." };
+    throw e;
+  } finally { clearTimeout(t); invalidateBrief(); }
+}
+
+
 
 // ── tier sources ─────────────────────────────────────────────
+// Each returns { rows, chip? }. A throwing source becomes one "X unavailable" chip.
 
-// Tier 1: systems red — expected artifacts stale/0-byte, disk critical.
-// Reads the same logs the health check asserts; no docker calls on this path.
-function tier1Systems() {
-  const items = [];
-  const now = Date.now();
-  const checks = [
-    { name: "openclaw-volume backup", path: "/var/log/openclaw-backup.log", pat: /Upload successful/, maxH: 48 },
-    { name: "services-host backup", path: join(LOGS, "services-backup.log"), pat: /Backup Complete/, maxH: 48 },
-    { name: "media mirror", path: join(LOGS, "media-mirror.log"), pat: /Media mirror complete/, maxH: 192 },
-  ];
-  for (const c of checks) {
-    try {
-      // live file only here; the nightly health check does the deep .gz search.
-      // A fresh success line in the live file clears the row; absence + old mtime flags it.
-      const txt = existsSync(c.path) ? readFileSync(c.path, "utf-8") : "";
-      const ok = c.pat.test(txt);
-      const ageH = existsSync(c.path) ? (now - statSync(c.path).mtimeMs) / 3600000 : Infinity;
-      if (!ok && ageH > c.maxH) {
-        items.push({ tier: 1, key: `sys:${c.name}`, title: `${c.name} — no success in ${Math.round(ageH)}h`, age: ageH * 3600000, link: "/systems" });
-      }
-    } catch { /* unreadable = not provable red from here; Systems page handles it */ }
-  }
-  if (!isMounted("/mnt/rc_media")) {
-    items.push({ tier: 1, key: "sys:rc-media-mount", title: "rc-media volume NOT MOUNTED — media primary offline", age: 0, link: "/systems" });
-  }
-  return items;
-}
-function isMounted(p) {
-  try { return readFileSync("/proc/mounts", "utf-8").split("\n").some(l => l.split(" ")[1] === p); } catch { return true; }
+// Tier 1: systems red. Same verdict as the Systems page (systemsOutcomes), so red here
+// is red there. One row per red card, plus the overall verdict.
+async function tier1Systems() {
+  const s = await withTimeout(systemsOutcomes(), 8000);
+  const cards = [...(s.backups || []), ...(s.disk || []), ...(s.crons || []), ...(s.containers || []), ...(s.kernel ? [s.kernel] : [])];
+  const red = cards.filter(c => !c.ok);
+  const rows = red.map(c => ({
+    tier: 1, key: `sys:${c.kind || "x"}:${c.name}`, title: `${c.name}${c.detail ? `: ${c.detail}` : ""}`,
+    age: c.ageHours ? c.ageHours * 3600000 : 0, link: "/systems",
+  }));
+  if (s.overall === "RED") rows.unshift({ tier: 1, key: "sys:overall", title: `Systems overall is RED (${red.length} card${red.length === 1 ? "" : "s"})`, age: 0, link: "/systems" });
+  return { rows, overall: s.overall, redCount: red.length };
 }
 
-// Tiers 2 + 4: RFIs from every job dir with an rfi.json.
+// Needs-Jake items filed by the voice-dump bots, still open.
+async function needsJake() {
+  const j = await getJson(`${VOICE_DUMP()}/live/ceo/needs`);
+  const rows = (j.open || []).map(n => ({
+    tier: 2, key: `need:${n.id}`, title: n.title || n.id, detail: n.detail ? String(n.detail).slice(0, 600) : undefined,
+    age: n.ts ? Math.max(0, Date.now() - Date.parse(n.ts)) : 0, needId: n.id, kind: "need", needKind: n.kind || null, // no link: "/" is the page you are on
+  }));
+  return { rows };
+}
+
+// The ask-jake question currently waiting on a voice reply, if any.
+function askJakePending() {
+  const f = ASKJAKE_PENDING();
+  if (!existsSync(f)) return { rows: [] };
+  const p = JSON.parse(readFileSync(f, "utf-8"));
+  const exp = Number(p.expires);
+  if (exp && (exp < 1e12 ? exp * 1000 : exp) < Date.now()) return { rows: [] }; // stale file from a dead run
+  const epoch = Number(p.epoch) || 0;
+  return { rows: [{ tier: 2, key: `ask:${p.msg_id || epoch}`, title: `Question waiting on you: ${String(p.question || "").slice(0, 200)}`, age: epoch ? Date.now() - epoch * 1000 : 0, kind: "ask" }] };
+}
+
+// RFIs from every job dir with an rfi.json. Blocking ones are individual tier 2 rows;
+// non-blocking ones collapse to ONE tier 4 row per job.
 function rfiTiers() {
   const t2 = [], t4 = [];
   let dirs = [];
-  try { dirs = readdirSync(JOBS_DIR); } catch { return { t2, t4 }; }
+  try { dirs = readdirSync(JOBS_DIR); } catch { return { t2, t4, blocking: 0 }; }
   for (const d of dirs) {
     const f = join(JOBS_DIR, d, "rfi.json");
     if (!existsSync(f)) continue;
     try {
       const rfi = JSON.parse(readFileSync(f, "utf-8"));
       const jobId = d.split("-")[0];
+      const mtime = statSync(f).mtimeMs;
+      let open = 0, oldest = 0;
       for (const g of rfi.groups || []) {
         for (const it of g.items || []) {
-          const age = it.raised ? Date.now() - Date.parse(it.raised) : 0;
-          const row = { key: `rfi:${jobId}:${it.id}`, title: `RFI ${it.id} ${it.title} (${rfi.job || d})`, age, link: `/rfis/${jobId}#item-${it.id}` };
-          if (it.status === "blocking") t2.push({ tier: 2, ...row });
-          else if (it.status === "before_submittal") t4.push({ tier: 4, ...row });
+          // raised is often missing; fall back to the file's mtime so every row shows an age
+          const age = Math.max(0, Date.now() - (it.raised ? Date.parse(it.raised) || mtime : mtime));
+          if (it.status === "blocking") {
+            t2.push({ tier: 2, key: `rfi:${jobId}:${it.id}`, title: `RFI ${it.id} ${it.title} (#${jobId})`, age, link: `/rfis/${jobId}#item-${it.id}`, kind: "rfi" });
+          } else if (it.status === "before_submittal") { open++; oldest = Math.max(oldest, age); }
         }
       }
-    } catch { /* malformed rfi.json — skip, never fabricate */ }
+      if (open) t4.push({ tier: 4, key: `rfis:${jobId}`, title: `${open} open RFI${open === 1 ? "" : "s"} on #${jobId}, oldest ${Math.floor(oldest / DAY)} days`, age: oldest, link: `/rfis/${jobId}` });
+    } catch { /* malformed rfi.json: skip, never fabricate */ }
   }
   return { t2, t4 };
 }
 
-// Tier 3: money needing a decision — draft pay apps + bills due soon (proxied AP).
-async function tier3Money() {
+// Tier 3: money. Personal bills due soon or just past due, one batched AP row, draft pay apps.
+// Today's calendar date in Chicago as a UTC-midnight ms value, so due_date minus today is whole days.
+const chicagoToday = () => Date.parse(new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" }));
+async function billsDue() {
+  const all = await getJson(`${BILLS_TRACKER()}/api/bills`);
+  const rows = []; let stale = 0;
+  const today = chicagoToday();
+  for (const b of Array.isArray(all) ? all : []) {
+    if (b.status && b.status !== "active") continue;
+    if (b.paid_this_cycle) continue;
+    // due_date is the real date. days_until counts from next_date, a projection that goes stale
+    // (-123 for a bill really due 3 days ago), so it is only a fallback when due_date is null.
+    const due = b.due_date ? Date.parse(b.due_date) : NaN;
+    const hasDue = Number.isFinite(due);
+    const d = hasDue ? Math.round((due - today) / DAY) : b.days_until;
+    if (typeof d !== "number") continue;
+    const late = d < 0 && d >= -14 && (hasDue || b.past_due);
+    if (late || (d >= 0 && d <= 3)) {
+      const amt = b.amount != null ? ` $${Number(b.amount).toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "";
+      const when = d < 0 ? `${-d}d past due` : d === 0 ? "due today" : `due in ${d}d`;
+      rows.push({ tier: 3, key: `pbill:${b.id}`, title: `${b.name}${amt}, ${when}`, age: d < 0 ? -d * DAY : 0, sortAge: -d * DAY, link: "/money/sheet", kind: "bill" });
+    } else if (d < 0) stale++;
+  }
+  // sortAge far below any real row so the batch always sits last in the tier
+  if (stale) rows.push({ tier: 3, key: "pbills:stale", title: `${stale} bill${stale === 1 ? " has a stale due date" : "s have stale due dates"}`, age: 0, sortAge: -1e15, link: "/money/sheet" });
+  return { rows, dueCount: rows.filter(r => r.kind === "bill").length };
+}
+async function apPending() {
+  const j = await getJson(`${INTEGRATION()}/api/pending-bills`);
+  // 71 items today, mostly 4 months old lien-release notices with no amount. Count only the fresh or priced ones.
+  const live = (j.pending || []).filter(b => b.status === "pending" && ((b.detectedAt && Date.now() - Date.parse(b.detectedAt) < 30 * DAY) || b.amount));
+  if (!live.length) return { rows: [] };
+  const oldest = Math.max(...live.map(b => b.detectedAt ? Date.now() - Date.parse(b.detectedAt) : 0));
+  return { rows: [{ tier: 3, key: "ap:pending", title: `${live.length} vendor bill${live.length === 1 ? "" : "s"} waiting for review`, age: oldest, link: "/money/bills" }] };
+}
+function payApps() {
   const items = [];
   try {
     const billDir = join(import.meta.dirname, "..", "data", "billing");
@@ -110,101 +217,150 @@ async function tier3Money() {
         }
       }
     }
-  } catch { /* billing store absent — fine */ }
-  try {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 4000);
-    const r = await fetch((process.env.INTEGRATION_API_URL || "http://172.18.0.7:3090") + "/api/pending-bills", { signal: ctl.signal });
-    clearTimeout(t);
-    if (r.ok) {
-      const bills = (await r.json())?.data || [];
-      for (const b of Array.isArray(bills) ? bills : []) {
-        items.push({ tier: 3, key: `bill:${b.id}`, title: `Bill pending: ${b.vendor || b.name || b.id}`, age: b.createdAt ? Date.now() - Date.parse(b.createdAt) : 0, link: "/money/bills" });
-      }
-    }
-  } catch { items.push({ tier: 3, key: "bills:unreachable", chip: true, title: "bills unavailable", age: 0, link: "/money/bills" }); }
-  return items;
+  } catch { /* billing store absent: fine */ }
+  return { rows: items };
 }
 
 // Tier 5: media awaiting a bucket decision. One batched row, never one per photo.
 // Count = catalogue entries with no decision in any bucket list (DESIGN.md §2, corrected).
 function tier5Media() {
-  try {
-    const cat = JSON.parse(readFileSync(join(MEDIA_STATE, "_catalogue.json"), "utf-8"));
-    const decided = new Set();
-    for (const f of ["_approved.json", "_postable.json", "_trash.json", "_records.json", "_personal.json"]) {
-      try {
-        const d = JSON.parse(readFileSync(join(MEDIA_STATE, f), "utf-8"));
-        for (const k of Array.isArray(d) ? d : Object.keys(d)) decided.add(k);
-      } catch { /* absent list = nothing decided there */ }
-    }
-    const undecided = Object.keys(cat).filter(k => !decided.has(k)).length;
-    if (undecided > 0) {
-      return [{ tier: 5, key: "media:ungraded", title: `${undecided} photos awaiting your call`, age: 0, link: "/media" }];
-    }
-  } catch { /* media state unreadable — Systems will say so */ }
-  return [];
+  const cat = JSON.parse(readFileSync(join(MEDIA_STATE, "_catalogue.json"), "utf-8"));
+  const decided = new Set();
+  for (const f of ["_approved.json", "_postable.json", "_trash.json", "_records.json", "_personal.json"]) {
+    try {
+      const d = JSON.parse(readFileSync(join(MEDIA_STATE, f), "utf-8"));
+      for (const k of Array.isArray(d) ? d : Object.keys(d)) decided.add(k);
+    } catch { /* absent list = nothing decided there */ }
+  }
+  const undecided = Object.keys(cat).filter(k => !decided.has(k)).length;
+  return { rows: undecided > 0 ? [{ tier: 5, key: "media:ungraded", title: `${undecided} photos to grade`, age: 0, link: "/media" }] : [], photos: undecided };
 }
 
-// Tier 6: project drift — urgent todos or active projects untouched > 5 days.
+// Tier 6: only what Jake flagged. Urgent to-dos, and IN-FLIGHT headings that say they wait on him.
+// No "untouched Nd" rows: the store goes weeks without edits, so idle time says nothing.
+const WAIT_RE = /(waiting|waits|awaiting|wait)\s+(on|for)\s+jake|jake'?s\s+go|needs\s+jake/i;
 function tier6Projects() {
-  const items = [];
+  const rows = [];
   try {
-    const pj = JSON.parse(readFileSync(join(HOME, "services", "projects", "projects.json"), "utf-8"));
-    const projects = pj.projects || pj || [];
-    for (const p of Array.isArray(projects) ? projects : []) {
+    for (const p of loadStore().projects || []) {
       if (p.status && p.status !== "active") continue;
-      const touched = Date.parse(p.lastTouched || p.updated || 0) || 0;
-      const idleDays = (Date.now() - touched) / 86400000;
-      const urgent = (p.todos || []).some(t => t.urgent && !t.done);
-      if (urgent || (touched && idleDays > 5)) {
-        items.push({ tier: 6, key: `proj:${p.id || p.name}`, title: urgent ? `Urgent todo on ${p.name}` : `${p.name} untouched ${Math.floor(idleDays)}d`, age: Date.now() - touched, link: "/projects" });
+      for (const t of p.todos || []) {
+        if (t.urgent && !t.done) {
+          const at = Date.parse(t.updated || t.created || p.lastTouched || 0) || 0;
+          rows.push({ tier: 6, key: `todo:${p.id}:${t.id}`, title: `${p.name}: ${t.text}`, age: at ? Date.now() - at : 0, link: "/projects" });
+        }
       }
     }
-  } catch { /* absent — fine */ }
-  return items;
+  } catch { /* store absent: fine */ }
+  try {
+    for (const h of parseInflight().headings) {
+      if (h.status === "done" || !WAIT_RE.test(h.title) || /JAKE'S PLATE/i.test(h.title)) continue;
+      const at = h.date ? Date.parse(h.date) : 0;
+      if (at && Date.now() - at > 45 * DAY) continue; // months-old "waiting on Jake" headings are history, not asks
+      rows.push({ tier: 6, key: `wait:${h.id}`, title: h.title.replace(/^[^\w]+/, "").replace(/\s*\((\d{4}-\d{2}-\d{2})?,?\s*(waiting|waits|awaiting)[^)]*\)\s*$/i, "").replace(/^(.{0,110})(\s.*)?$/, (_, a, rest) => rest ? `${a}…` : a), age: at ? Date.now() - at : 0, link: "/projects" });
+    }
+  } catch { /* parse failure: fine */ }
+  return { rows };
 }
 
 // Overnight digest: The Claw's brief-<date>.md, with prior-day fallback (§2 —
 // verified the file is frequently absent at morning check-in; queue never depends on it).
+// 2-3 complete sentences of plain text, or null so the section is omitted.
+export function summarize(md) {
+  const sentences = [];
+  for (let l of md.split("\n")) {
+    l = l.trim();
+    if (!l || /^#/.test(l) || /^-{3,}$/.test(l) || /^[-*+]\s|^\d+[.)]\s/.test(l)) continue; // headers, rules, list items
+    l = l.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`]+/g, "").trim();
+    if (/^(theme|wildcard)\s*:/i.test(l)) continue;
+    // per line, and only terminated sentences: a lead-in ending in ":" is introducing a list we skip.
+    // A period inside "3.5" or "$12,400.50" is not followed by whitespace, so it never ends a sentence;
+    // abbreviations are masked first so "Dr. Smith" and "Oct. 3" stay whole.
+    l = l.replace(/\b(Dr|Mr|Mrs|Ms|St|Jr|Sr|No|Inc|Co|Ltd|Oct|Nov|Dec|Jan|Feb|Mar|Apr|Aug|Sept?|vs|etc)\.(?=\s)/g, "$1§").replace(/\b(e\.g|i\.e)\./g, "$1§");
+    for (const m of l.match(/.+?[.!?]+(?=\s|$)/g) || []) sentences.push(m.replace(/§/g, ".").trim());
+  }
+  const out = []; let len = 0;
+  for (const s of sentences) {
+    if (s.length < 25 || /:\s/.test(s)) continue; // fragments and half-sentences that run into a list
+    if (len + s.length > 480 && out.length) break;
+    out.push(s); len += s.length;
+    if (out.length === 3) break;
+  }
+  return out.length ? out.join(" ") : null;
+}
 async function digest() {
   for (let back = 0; back < 4; back++) {
     const d = new Date(Date.now() - back * 86400000).toISOString().slice(0, 10);
     const r = await execDocker(`cat /home/node/.openclaw/workspace/memory/intelligence/brief-${d}.md`);
     if (r.ok && r.data?.trim()) {
-      // 2-3 lines, not a wall (§2): skip markdown headers, take the first 3 content lines
-      const lines = r.data.split("\n").filter(l => l.trim() && !l.trim().startsWith("#") && l.trim() !== "---");
-      return { date: d, stale: back > 0, text: lines.slice(0, 3).join("\n") };
+      const t = summarize(r.data);
+      return t ? { date: d, stale: back > 0, text: t } : null;
     }
   }
   return null; // section omitted entirely
 }
 
 // ── assembly ─────────────────────────────────────────────────
+// Memo holds the UNSNOOZED build; snoozes apply on every read so snooze/unsnooze are instant.
 let memo = { at: 0, data: null };
-// Called by the rfi.json watcher: without this the ws push tells the client to
-// refetch and the client gets the same 60s-memoized queue back.
-export function invalidateBrief() { memo = { at: 0, data: null }; }
+let inflight = null;
+let gen = 0; // bumped on invalidate so a build already in flight cannot re-cache pre-change data
+// Called by the rfi.json watcher and by snooze/decide: without this the client refetches
+// and gets the same 60s-memoized result back.
+export function invalidateBrief() { gen++; memo = { at: 0, data: null }; inflight = null; }
+
+async function build() {
+  if (memo.data && Date.now() - memo.at < 60_000) return memo.data;
+  if (inflight) return inflight;
+  const myGen = gen;
+  const p = (async () => {
+    const chips = [];
+    const run = async (name, fn) => {
+      try { return await fn(); } catch { chips.push({ source: name, label: `${name} unavailable` }); return { rows: [] }; }
+    };
+    const [sys, need, bills, ap, media, dg] = await Promise.all([
+      run("Systems", tier1Systems), run("Needs-Jake queue", needsJake), run("Bills", billsDue),
+      run("AP bills", apPending), run("Media", async () => tier5Media()), digest().catch(() => null),
+    ]);
+    const ask = await run("Ask-Jake", async () => askJakePending());
+    const { t2, t4 } = rfiTiers();
+    const raw = [...sys.rows, ...need.rows, ...ask.rows, ...t2, ...bills.rows, ...ap.rows, ...payApps().rows, ...t4, ...media.rows, ...(await run("Projects", async () => tier6Projects())).rows];
+    const data = {
+      raw, chips, digest: dg,
+      systems: { overall: sys.overall || null, red: sys.redCount || 0 },
+      counts: { needs: need.rows.length + ask.rows.length + t2.length, blockingRfis: t2.length, billsDue: bills.dueCount || 0, photos: media.photos || 0 },
+    };
+    if (myGen === gen) memo = { at: Date.now(), data }; // stale build still answers its own callers, just does not cache
+    return data;
+  })().finally(() => { if (inflight === p) inflight = null; });
+  inflight = p;
+  return p;
+}
 
 export async function buildBrief() {
-  if (memo.data && Date.now() - memo.at < 60_000) return memo.data; // 60s TTL (§2)
-  const st = loadState();
-  const { t2, t4 } = rfiTiers();
-  const [t3, dg] = await Promise.all([tier3Money(), digest()]);
-  let rows = [...tier1Systems(), ...t2, ...t3, ...t4, ...tier5Media(), ...tier6Projects()];
-
-  const now = Date.now();
-  rows = rows.map(r => {
+  const b = await build();
+  const st = loadState(), now = Date.now();
+  let snoozed = 0;
+  let rows = b.raw.map(r => {
     const sn = st.snoozes[r.key];
-    if (sn && Date.parse(sn.until) > now) return null;            // actively snoozed
-    if (sn) r.snoozedTimes = sn.count;                            // returned from snooze
-    return r;
+    if (sn && Date.parse(sn.until) > now) { snoozed++; return null; } // actively snoozed
+    return sn ? { ...r, snoozedTimes: sn.count } : r;                 // returned from snooze
   }).filter(Boolean);
 
   // tier first, oldest first inside a tier — the whole point
-  rows.sort((a, b) => a.tier - b.tier || b.age - a.age);
+  rows.sort((a, b) => a.tier - b.tier || (b.sortAge ?? b.age) - (a.sortAge ?? a.age));
 
-  const data = { generated: new Date().toISOString(), queue: rows.slice(0, 6), more: Math.max(0, rows.length - 6), all: rows, digest: dg };
-  memo = { at: Date.now(), data };
-  return data;
+  // Top 6 holds at most 3 voice-dump needs, so a stale backlog cannot bury blocking RFIs and late bills.
+  // Src/views/Brief.jsx applies the same cap to `all`.
+  const queue = []; let needsIn = 0;
+  for (const r of rows) {
+    if (queue.length === 6) break;
+    if (r.kind === "need" && needsIn >= 3) continue;
+    if (r.kind === "need") needsIn++;
+    queue.push(r);
+  }
+  return {
+    generated: new Date(memo.at || now).toISOString(), queue, more: Math.max(0, rows.length - queue.length), all: rows,
+    digest: b.digest, chips: b.chips, snoozed, systems: b.systems, counts: b.counts,
+  };
 }
