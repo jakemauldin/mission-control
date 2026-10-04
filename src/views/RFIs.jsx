@@ -1,9 +1,10 @@
 // RFI workspace, phase 2 interactivity (DESIGN.md §4): status changes, notes, draft-assist, live updates.
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useParams, useLocation } from "react-router-dom";
 import { C, BRAND } from "../lib/colors";
 import { Section } from "../components/ui/Card";
 import { useWebSocket } from "../hooks/useWebSocket";
+import Md from "../components/Md";
 
 const ST = {
   blocking: { label: "BLOCKING", color: "#f87171" },
@@ -13,6 +14,13 @@ const ST = {
 };
 const ST_KEYS = ["blocking", "before_submittal", "cleanup", "closed"];
 const KEY_TO_STATUS = { "1": "blocking", "2": "before_submittal", "3": "cleanup", "4": "closed" };
+
+// "#119 Thomas Hearth": name from the RFI title ("Thomas Hearth — RFI Log"), else the folder slug.
+function jobLabel({ jobId, dir, title }) {
+  let name = String(title || "").split(/\s[—–-]\s/)[0].trim();
+  if (!name || /^rfi/i.test(name)) name = String(dir || "").replace(/^\d+-/, "").split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  return `#${jobId}${name ? " " + name : ""}`;
+}
 
 export function RfiIndex() {
   const [jobs, setJobs] = useState(null);
@@ -24,7 +32,7 @@ export function RfiIndex() {
       {jobs.map(j => (
         <Link key={j.dir} to={`/rfis/${j.jobId}`} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: `1px solid ${C.border}`, textDecoration: "none", color: C.text }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{j.job}</div>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>{jobLabel(j)}</div>
             <div style={{ color: C.dim, fontSize: 12 }}>{j.title} · revised {j.revised || "?"}</div>
           </div>
           {j.counts.blocking > 0 && <span style={{ color: ST.blocking.color, fontSize: 12, fontWeight: 700 }}>{j.counts.blocking} blocking</span>}
@@ -55,7 +63,8 @@ function Item({ it, jobId, focused, onFocus, onPatch }) {
   const [saving, setSaving] = useState(false);
   const [showDraft, setShowDraft] = useState(false);
   const [showLog, setShowLog] = useState(false);
-  const st = ST[it.status] || { label: it.status, color: C.dim };
+  const [copied, setCopied] = useState(false);
+  const [noteErr, setNoteErr] = useState("");
   const log = it.log || [];
 
   const setStatus = async (status) => {
@@ -75,7 +84,8 @@ function Item({ it, jobId, focused, onFocus, onPatch }) {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ note }),
     });
     setSaving(false);
-    if (r.ok) { setNote(""); setShowNote(false); onPatch(null, null, true); } // signal re-fetch
+    if (r.ok) { setNote(""); setNoteErr(""); setShowNote(false); onPatch(null, null, true); } // signal re-fetch
+    else setNoteErr("Note did not save. Try again.");
   };
 
   return (
@@ -94,11 +104,10 @@ function Item({ it, jobId, focused, onFocus, onPatch }) {
       <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
         <span style={{ fontFamily: "monospace", color: C.dim, fontSize: 12 }}>{it.id}</span>
         <span style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>{it.title}</span>
-        <span style={{ color: st.color, fontSize: 10, fontWeight: 700, letterSpacing: 0.5 }}>{st.label}</span>
       </div>
-      {it.concern && <p style={{ margin: "6px 0 0", fontSize: 13, color: C.text, lineHeight: 1.5 }}>{it.concern}</p>}
-      {it.ask && <p style={{ margin: "6px 0 0", fontSize: 13, color: BRAND.focus, lineHeight: 1.5 }}><b>Ask:</b> {it.ask}</p>}
-      {it.update && <p style={{ margin: "6px 0 0", fontSize: 12, color: C.dim, lineHeight: 1.5 }}>Update: {it.update}</p>}
+      {it.concern && <Md text={it.concern} size={13} style={{ marginTop: 6, color: C.text }} />}
+      {it.ask && <Md text={`**Ask:** ${it.ask}`} size={13} style={{ marginTop: 6, color: BRAND.focus }} />}
+      {it.update && <Md text={`Update: ${it.update}`} size={12} style={{ marginTop: 6, color: C.dim }} />}
 
       <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
         {ST_KEYS.map(k => (
@@ -135,6 +144,7 @@ function Item({ it, jobId, focused, onFocus, onPatch }) {
             style={{ marginTop: 6, fontSize: 12, padding: "4px 10px", borderRadius: 6, cursor: "pointer", background: "none", color: BRAND.link, border: `1px solid ${BRAND.border}` }}>
             {saving ? "Saving…" : "Save"}
           </button>
+          {noteErr && <span style={{ marginLeft: 10, fontSize: 12, color: "#f87171" }}>{noteErr}</span>}
         </div>
       )}
 
@@ -142,6 +152,10 @@ function Item({ it, jobId, focused, onFocus, onPatch }) {
         <div style={{ marginTop: 8 }} onClick={e => e.stopPropagation()}>
           <textarea readOnly value={draftReply(it)} rows={6}
             style={{ width: "100%", background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, padding: 8, fontSize: 12, fontFamily: "inherit", resize: "vertical" }} />
+          <button onClick={() => { navigator.clipboard?.writeText(draftReply(it)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => {}); }}
+            style={{ marginTop: 6, fontSize: 12, padding: "4px 12px", borderRadius: 6, cursor: "pointer", background: "none", color: BRAND.link, border: `1px solid ${BRAND.border}` }}>
+            {copied ? "Copied" : "Copy"}
+          </button>
         </div>
       )}
 
@@ -164,6 +178,7 @@ export function RfiJob() {
   const [rfi, setRfi] = useState(null);
   const [err, setErr] = useState(null);
   const [focusedId, setFocusedId] = useState(null);
+  const [closedOpen, setClosedOpen] = useState(false);
   const { lastMessage } = useWebSocket();
 
   const load = useCallback(() => {
@@ -178,16 +193,32 @@ export function RfiJob() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    if (rfi && hash) setTimeout(() => document.querySelector(hash)?.scrollIntoView({ block: "center" }), 100);
+    if (rfi && hash) setTimeout(() => { try { document.querySelector(hash)?.scrollIntoView({ block: "center" }); } catch { /* bad hash */ } }, 100);
   }, [rfi, hash]);
 
   useEffect(() => {
     if (lastMessage?.type === "rfi_update" && String(lastMessage.jobId) === String(jobId)) load();
   }, [lastMessage, jobId, load]);
 
+  // Closing an item moves it into the collapsed Closed section and unmounts what had focus,
+  // so the next keypress would go nowhere. Hand focus to the next open item instead.
+  const nextFocus = useRef(null);
+  useEffect(() => {
+    const id = nextFocus.current;
+    if (!id) return;
+    nextFocus.current = null;
+    setFocusedId(id);
+    document.getElementById(`item-${id}`)?.focus();
+  }, [rfi]);
+
   // optimistic patch helper: patchItem(itemId, fields) mutates local state; patchItem(null,null,true) forces re-fetch
   const patchItem = (itemId, fields, forceReload) => {
     if (forceReload) { load(); return; }
+    if (fields?.status === "closed" && itemId === focusedId) {
+      const openIds = (rfi?.groups || []).flatMap(g => g.items || []).filter(it => it.status !== "closed").map(it => it.id);
+      const i = openIds.indexOf(itemId);
+      nextFocus.current = openIds[i + 1] || openIds[i - 1] || null;
+    }
     setRfi(prev => {
       if (!prev) return prev;
       return { ...prev, groups: prev.groups.map(g => ({
@@ -199,20 +230,39 @@ export function RfiJob() {
   if (err) return <Section title="RFIs"><div style={{ color: C.dim }}>{err}</div></Section>;
   if (!rfi) return <Section title="RFIs"><div style={{ color: C.dim }}>Loading…</div></Section>;
 
+  const label = jobLabel(rfi);
+  const open = it => it.status !== "closed";
+  // a link to a closed item has to open the Closed section or there is nothing to scroll to
+  let hashId = hash ? hash.replace(/^#item-/, "") : "";
+  try { hashId = decodeURIComponent(hashId); } catch { /* malformed escape: use it raw */ }
+  const hashClosed = (rfi.groups || []).some(g => (g.items || []).some(it => it.id === hashId && it.status === "closed"));
+  const closedItems = (rfi.groups || []).flatMap(g => (g.items || []).filter(it => !open(it)).map(it => ({ it, group: g.name })));
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div>
         <Link to="/rfis" style={{ color: BRAND.link, fontSize: 13, textDecoration: "none" }}>← all jobs</Link>
-        <h2 style={{ margin: "6px 0 2px", fontSize: 18 }}>{rfi.job} — {rfi.title}</h2>
+        <h2 style={{ margin: "6px 0 2px", fontSize: 18 }}>{label}</h2>
         <div style={{ color: C.dim, fontSize: 12 }}>{rfi.address} · issued by {rfi.issued_by} · revised {rfi.revised}</div>
+        <div style={{ color: C.dim, fontSize: 11, marginTop: 2 }}>Click an item, then press 1 blocking, 2 before submittal, 3 cleanup, 4 closed.</div>
       </div>
-      {(rfi.groups || []).map(g => (
-        <Section key={g.key} title={`${g.name}${g.contact ? " — " + g.contact : ""}`}>
-          {(g.items || []).map(it => (
+      {(rfi.groups || []).filter(g => (g.items || []).some(open)).map(g => (
+        <Section key={g.key} title={g.name}>
+          {g.contact && <div style={{ color: C.dim, fontSize: 12, margin: "-8px 0 8px", overflowWrap: "anywhere" }}>{g.contact}</div>}
+          {(g.items || []).filter(open).map(it => (
             <Item key={it.id} it={it} jobId={jobId} focused={focusedId === it.id} onFocus={setFocusedId} onPatch={patchItem} />
           ))}
         </Section>
       ))}
+      {closedItems.length > 0 && (
+        <details open={closedOpen || hashClosed} onToggle={e => setClosedOpen(e.currentTarget.open)} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px" }}>
+          <summary style={{ cursor: "pointer", fontSize: 15, fontWeight: 700, color: C.bright }}>Closed ({closedItems.length})</summary>
+          <div style={{ marginTop: 8 }}>
+            {closedItems.map(({ it }) => (
+              <Item key={it.id} it={it} jobId={jobId} focused={focusedId === it.id} onFocus={setFocusedId} onPatch={patchItem} />
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }

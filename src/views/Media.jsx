@@ -7,6 +7,8 @@ import { Link } from "react-router-dom";
 import { useWebSocket } from "../hooks/useWebSocket";
 
 const GALLERY = "http://100.92.25.23:3251";
+// Same tab -> mode pairing the gallery uses for its own nav links.
+const MODE_OF_TAB = { unsorted: "organize", finaled: "choose", postable: "choose", records: "organize", trash: "organize" };
 const STATUS_COLOR = { "awaiting-prompt": "#fbbf24", queued: "#94a3b8", running: BRAND.focus, done: "#4ade80", failed: "#f87171" };
 
 export default function Media() {
@@ -38,29 +40,31 @@ export default function Media() {
     if (d.ok) { setCreated(d.data); setForm(f => ({ ...f, intent: "", refs: "" })); setPicked([]); loadQueue(); }
   };
 
-  const cell = (label, n, hot) => (
-    <div key={label} style={{ flex: 1, minWidth: 90, textAlign: "center", padding: "14px 6px", background: C.card, border: `1px solid ${hot ? BRAND.border : C.border}`, borderRadius: 10 }}>
+  // Each tile opens the gallery tab it counts, so the number and the page agree.
+  const cell = (label, n, hot, tab) => (
+    <a key={label} href={`${GALLERY}/?tab=${tab}&mode=${MODE_OF_TAB[tab]}`} target="_blank" rel="noopener noreferrer"
+      style={{ flex: 1, minWidth: 90, textAlign: "center", padding: "14px 6px", background: C.card, border: `1px solid ${hot ? BRAND.border : C.border}`, borderRadius: 10, textDecoration: "none" }}>
       <div style={{ fontSize: 26, fontWeight: 700, color: hot ? BRAND.focus : C.bright }}>{n ?? "—"}</div>
       <div style={{ fontSize: 11, color: C.dim, marginTop: 2, letterSpacing: 0.5 }}>{label}</div>
-    </div>
+    </a>
   );
   const inp = { padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 13 };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        {cell("AWAITING YOU", counts?.undecided, true)}
-        {cell("AD WORTHY", counts?.approved)}
-        {cell("POSTABLE", counts?.postable)}
-        {cell("RECORDS", counts?.records)}
-        {cell("TRASH", counts?.trash)}
+        {cell("AWAITING YOU", counts?.undecided, true, "unsorted")}
+        {cell("AD WORTHY", counts?.approved, false, "finaled")}
+        {cell("POSTABLE", counts?.postable, false, "postable")}
+        {cell("RECORDS", counts?.records, false, "records")}
+        {cell("TRASH", counts?.trash, false, "trash")}
       </div>
 
       <Section title="Grade & pick">
         <Link to="/media/post" style={{ display: "inline-block", padding: "10px 18px", background: "none", border: `1px solid ${BRAND.border}`, color: BRAND.focus, borderRadius: 8, fontWeight: 600, fontSize: 14, textDecoration: "none", marginRight: 10 }}>
           Post builder →
         </Link>
-        <a href={GALLERY} target="_blank" rel="noreferrer"
+        <a href={GALLERY} target="_blank" rel="noopener noreferrer"
           style={{ display: "inline-block", padding: "10px 18px", background: BRAND.accent, color: "#0C1017", borderRadius: 8, fontWeight: 600, fontSize: 14, textDecoration: "none" }}>
           Open the gallery →
         </a>
@@ -112,7 +116,7 @@ export default function Media() {
           {recent.length > 0 && (
             <div>
               <div style={{ fontSize: 12, color: C.dim, marginBottom: 6 }}>
-                Tap photos to attach as references ({picked.length} picked) — newest postable shots:
+                Tap photos to attach as references ({picked.length} picked) — newest postable job photos:
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))", gap: 6 }}>
                 {recent.map(m => {
