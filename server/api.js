@@ -5,7 +5,7 @@ import { WebSocketServer } from "ws";
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { requireAuth, checkPassphrase, makeSessionCookie, clearSessionCookie, validSession } from "./lib/auth.js";
-import { buildBrief, snoozeItem, invalidateBrief } from "./lib/brief.js";
+import { buildBrief, snoozeItem, invalidateBrief, unsnoozeItem, listSnoozed, decideNeed } from "./lib/brief.js";
 import { listRfiJobs, getRfi, mediaCounts, updateRfiItem, recentMedia, thumbPathFor } from "./lib/rfis.js";
 import { systemsOutcomes } from "./lib/systems.js";
 import { readAccessMap, startRefresh as startAccessMapRefresh, refreshStatus as accessMapStatus } from "./lib/accessmap.js";
@@ -377,6 +377,21 @@ app.post("/api/brief/snooze", (req, res) => {
   if (!key || !until) return res.status(400).json({ ok: false, error: "key and until required" });
   try { res.json({ ok: true, data: snoozeItem(key, until) }); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.get("/api/brief/snoozed", async (_req, res) => {
+  try { res.json({ ok: true, data: await listSnoozed() }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post("/api/brief/unsnooze", (req, res) => {
+  const { key } = req.body || {}; // key "*" brings every snoozed row back
+  if (!key) return res.status(400).json({ ok: false, error: "key required" });
+  try { unsnoozeItem(key); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+// Allow / Drop on a voice-dump needs-Jake item; voice-dump owns the decision.
+app.post("/api/brief/needs/:id/decide", async (req, res) => {
+  try { res.json({ ok: true, data: await decideNeed(req.params.id, req.body?.action) }); }
+  catch (e) { res.status(/bad id|must be/.test(e.message) ? 400 : 502).json({ ok: false, error: e.message }); }
 });
 
 // ── RFIs (read-only, DESIGN.md §4) + media counts ────────────
