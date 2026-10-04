@@ -81,6 +81,7 @@ export function PresenceProvider({ children }) {
   const [soundOn, setSoundOn] = useState(audioReady());
   const wsRef = useRef(null);
   const settingsRef = useRef(settings);
+  const busyRef = useRef(false); // a call is open on this device
   const lastActive = useRef(Date.now());
   const me = useMemo(() => ({ id: deviceId(), label: guessLabel() }), []);
 
@@ -92,7 +93,7 @@ export function PresenceProvider({ children }) {
   }, []);
   const announce = useCallback(() => {
     const s = settingsRef.current;
-    send({ type: "sign", open: s.open, takesCalls: s.takesCalls, dropIn: s.dropIn });
+    send({ type: "sign", open: s.open, takesCalls: s.takesCalls, dropIn: s.dropIn, busy: busyRef.current });
   }, [send]);
 
   // socket: same URL logic as useWebSocket, backoff capped at 30 s, hello + sign on every connect
@@ -136,6 +137,13 @@ export function PresenceProvider({ children }) {
     return () => { closed = true; clearTimeout(timer); const ws = wsRef.current; if (ws) { ws.onclose = null; ws.close(); } };
   }, [me, announce]);
 
+  // tell the server while a call is open, so a second ring skips this device instead of showing a
+  // banner nobody can see over the dock (an urgent one would otherwise end up as a cell call)
+  useEffect(() => {
+    busyRef.current = !!call;
+    announce();
+  }, [call, announce]);
+
   // a ring that nobody cancelled still ends: drop it a moment after it expires
   useEffect(() => {
     if (!ring) return undefined;
@@ -174,11 +182,14 @@ export function PresenceProvider({ children }) {
   useEffect(() => {
     if (!navigator.locks?.request) return undefined;
     const ctl = new AbortController();
+    let release = () => {};
     navigator.locks.request("rc-ring-leader", { signal: ctl.signal }, () => {
       setIsLeader(true);
-      return new Promise(() => {});
+      return new Promise((resolve) => { release = resolve; });
     }).catch(() => {});
-    return () => ctl.abort();
+    // abort drops a request still waiting in the queue, release lets go of a lock already held, so a
+    // remounted provider in the same tab does not queue behind its own stale lock
+    return () => { ctl.abort(); release(); };
   }, []);
 
   useEffect(() => {
@@ -191,7 +202,7 @@ export function PresenceProvider({ children }) {
     setSettings(next);
     lsSet(LS_SIGN, JSON.stringify(next));
     const ws = wsRef.current;
-    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "sign", open: next.open, takesCalls: next.takesCalls, dropIn: next.dropIn }));
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "sign", open: next.open, takesCalls: next.takesCalls, dropIn: next.dropIn, busy: busyRef.current }));
   }, []);
 
   const answer = useCallback((id) => send({ type: "ring_answer", id }), [send]);

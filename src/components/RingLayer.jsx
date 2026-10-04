@@ -55,6 +55,8 @@ function Banner({ ring, p }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ring.id, eligible]);
 
+  // The Answer button is deliberately not autoFocus: Jake is often typing when a ring lands, and a
+  // focused button would take his next space or Enter as "answer" and put him on a live mic call.
   const cancelDrop = () => { cancelled.current = true; setDropLeft(null); };
   const answer = () => { armAudio(); cancelled.current = true; p.answer(ring.id); };
   const tone = ring.urgency === "critical" ? STATUS.bad : ring.urgency === "urgent" ? STATUS.warn : BRAND.accent;
@@ -77,7 +79,7 @@ function Banner({ ring, p }) {
           </div>
         ) : (
           <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" onClick={answer} autoFocus style={{ flex: 1, padding: "9px 16px", borderRadius: 8, background: BRAND.accent, color: "#0E0C06", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Answer</button>
+            <button type="button" onClick={answer} style={{ flex: 1, padding: "9px 16px", borderRadius: 8, background: BRAND.accent, color: "#0E0C06", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Answer</button>
             <button type="button" onClick={() => p.later(ring.id)} style={{ padding: "9px 16px", borderRadius: 8, background: "transparent", color: C.text, border: `1px solid ${C.border}`, fontSize: 14, cursor: "pointer" }}>Later</button>
           </div>
         )}
