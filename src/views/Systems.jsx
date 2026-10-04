@@ -19,20 +19,54 @@ function Dot({ ok }) {
   return <span style={{ width: 8, height: 8, borderRadius: "50%", background: ok ? OK : BAD, flexShrink: 0, display: "inline-block" }} />;
 }
 
+// Rows wrap instead of squeezing columns: on a phone the name sits on one line and the
+// detail drops under it. The "N% used" chip is gone, the disk detail already says it.
 function OutcomeRow({ item }) {
   return (
-    <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "9px 0", borderBottom: `1px solid ${C.bdr}` }}>
+    <div style={{ display: "flex", alignItems: "baseline", columnGap: 10, rowGap: 2, padding: "9px 0", borderBottom: `1px solid ${C.bdr}`, flexWrap: "wrap" }}>
       <Dot ok={item.ok} />
-      <span style={{ fontSize: 13, fontWeight: 600, color: C.bright, minWidth: 140 }}>{item.name}</span>
-      <span style={{ flex: 1, fontSize: 12, color: C.dim }}>{item.detail || ""}</span>
-      {typeof item.pct === "number" && (
-        <span style={{ fontSize: 11, color: C.dim, fontFamily: C.mono }}>
-          {item.pct}% used{typeof item.freeGB === "number" ? ` · ${item.freeGB}GB free` : ""}
+      <span style={{ fontSize: 13, fontWeight: 600, color: C.bright, flex: "0 1 190px", minWidth: 0 }}>{item.name}</span>
+      <span style={{ flex: "1 1 220px", minWidth: 0, fontSize: 12, color: C.dim, overflowWrap: "anywhere" }}>{item.detail || ""}</span>
+      {(item.owner || typeof item.ageHours === "number") && (
+        <span style={{ fontSize: 11, color: C.dim, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {item.owner && <span>{item.owner}</span>}
+          {typeof item.ageHours === "number" && <span style={{ fontFamily: C.mono }}>{item.ageHours}h old</span>}
         </span>
       )}
-      {item.owner && <span style={{ fontSize: 11, color: C.dim }}>{item.owner}</span>}
-      {typeof item.ageHours === "number" && <span style={{ fontSize: 11, color: C.dim, fontFamily: C.mono }}>{item.ageHours}h old</span>}
     </div>
+  );
+}
+
+function ageLabel(h) {
+  if (typeof h !== "number") return "";
+  return h < 1 ? "under an hour old" : h < 48 ? `${h}h old` : `${Math.round(h / 24)}d old`;
+}
+
+// The daily snapshot, with its reasons and age, so a red one says what is wrong.
+function HealthCard({ health }) {
+  if (!health) return <Section title="Health snapshot"><div style={{ color: C.dim, fontSize: 13 }}>No data</div></Section>;
+  const reasons = health.reasons || [];
+  return (
+    <Section title="Health snapshot">
+      <div style={{ fontSize: 11, color: C.dim, marginBottom: 8 }}>
+        Daily 01:00 check{health.snapshotAt ? `, ${ageLabel(health.ageHours)}` : ""}. Can lag live state; the live cards above are current.
+      </div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        <Dot ok={health.ok} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: C.bright }}>{health.status || health.name}</span>
+        {!reasons.length && <span style={{ flex: "1 1 200px", fontSize: 12, color: C.dim }}>{health.ok ? "No problems flagged" : health.detail}</span>}
+      </div>
+      {reasons.length > 0 && (
+        <ul style={{ margin: "8px 0 0", paddingLeft: 26, fontSize: 12, color: C.text, display: "flex", flexDirection: "column", gap: 3 }}>
+          {reasons.map((r, i) => <li key={i}>{r}</li>)}
+        </ul>
+      )}
+      {(health.warnings || []).length > 0 && (
+        <div style={{ marginTop: 8, fontSize: 11, color: C.dim }}>
+          Warnings: {health.warnings.join(" · ")}
+        </div>
+      )}
+    </Section>
   );
 }
 
@@ -204,32 +238,45 @@ export default function SystemsView() {
     }
   }, [loadTabs]);
 
-  if (err) return <Section title="Systems"><div style={{ color: C.dim }}>{err}</div></Section>;
+  // A failed poll keeps the last good data on screen; only a cold failure shows the bare error.
+  if (!data && err) return <Section title="Systems"><div style={{ color: C.dim }}>{err}</div></Section>;
   if (!data) return <Section title="Systems"><div style={{ color: C.dim }}>Loading…</div></Section>;
 
   const backups = data.backups || [];
   const disk = data.disk || [];
   const crons = data.crons || [];
   const containers = data.containers || [];
+  const memory = data.memory || [];
   const health = data.health;
 
-  const attention = [...backups, ...disk, ...crons, ...containers, ...(health ? [health] : [])].filter((it) => it && it.ok === false);
+  // The snapshot has its own card with reasons, so it is not repeated in Attention.
+  const attention = [...backups, ...disk, ...memory, ...crons, ...containers].filter((it) => it && it.ok === false);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ textAlign: "right", fontSize: 12 }}>
         <Link to="/access" style={{ color: BRAND.link, textDecoration: "none", fontWeight: 600 }}>Access map →</Link>
       </div>
+      {err && <div style={{ fontSize: 12, color: C.text, padding: "6px 10px", background: "rgba(255,255,255,0.04)", borderRadius: 8 }}>Refresh failed ({err}), showing the last good data.</div>}
       <Section title="Attention">
         {attention.length === 0 ? (
-          <div style={{ color: OK, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
-            <Dot ok={true} /> All outcomes landed
-          </div>
+          data.overall === "RED" ? (
+            <div style={{ color: C.text, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+              <Dot ok={false} /> Live checks are fine, but the health snapshot below is red.
+            </div>
+          ) : (
+            <div style={{ color: OK, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+              <Dot ok={true} /> All outcomes landed
+            </div>
+          )
         ) : (
           attention.map((it, i) => <OutcomeRow key={`${it.kind}-${it.name}-${i}`} item={it} />)
         )}
       </Section>
 
+      <HealthCard health={health} />
+
+      <Group title="Memory" items={memory} />
       <Group title="Backups" items={backups} />
       <Group title="Disk" items={disk} />
       <Group title="Scheduled jobs" items={crons} />
@@ -274,21 +321,6 @@ export default function SystemsView() {
         onOpen={(url) => openInShared(url, "open")}
         onActivate={activateTab} onClose={closeTab} onRefresh={loadTabs}
       />
-
-      <Section title="Health snapshot">
-        <div style={{ fontSize: 11, color: C.dim, marginBottom: 8 }}>
-          01:00 daily snapshot — can lag live state.
-        </div>
-        {health ? (
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-            <Dot ok={health.ok} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: C.bright }}>{health.status || health.name}</span>
-            <span style={{ flex: 1, fontSize: 12, color: C.dim }}>{health.detail}</span>
-          </div>
-        ) : (
-          <div style={{ color: C.dim, fontSize: 13 }}>No data</div>
-        )}
-      </Section>
 
       {data.generated && (
         <div style={{ fontSize: 11, color: C.dim, textAlign: "right" }}>generated {data.generated}</div>
