@@ -111,30 +111,67 @@ export async function getJobDetail(jobId) {
   return { ok: true, data: job };
 }
 
-export async function getJobs() {
-  const result = await queryJobTread({
-    organization: {
-      $: { id: ORG_ID },
-      jobs: {
-        nodes: {
-          id: true,
-          name: true,
-          number: true,
-          description: true,
-          closedOn: true,
-          createdAt: true,
+// JobTread lists return 10 rows unless sized (cap 100), silently. Page with the
+// nextPage cursor until it runs out. Hard cap so a bad cursor cannot loop forever.
+const JOBS_CACHE_MS = 5 * 60 * 1000;
+const JOBS_MAX = 1000;
+let jobsCache = null; // { at, data }
+let jobsInflight = null;
+
+async function fetchAllJobs() {
+  const all = [];
+  let page = null;
+  for (let i = 0; i < JOBS_MAX / 100; i++) {
+    const result = await queryJobTread({
+      organization: {
+        $: { id: ORG_ID },
+        jobs: {
+          $: { size: 100, ...(page ? { page } : {}) },
+          nodes: {
+            id: true,
+            name: true,
+            number: true,
+            description: true,
+            closedOn: true,
+            createdAt: true,
+            location: { account: { name: true } },
+          },
+          nextPage: true,
         },
       },
-    },
-  });
-
-  if (!result.ok) return result;
-
-  // Extract the nodes array from the nested response
-  const nodes = result.data?.organization?.jobs?.nodes;
-  if (Array.isArray(nodes)) {
-    return { ok: true, data: nodes };
+    });
+    if (!result.ok) return result;
+    const jobs = result.data?.organization?.jobs;
+    if (!jobs || !Array.isArray(jobs.nodes)) return { ok: true, data: result.data };
+    all.push(...jobs.nodes);
+    page = jobs.nextPage;
+    if (!page || jobs.nodes.length === 0) break;
   }
+  // Customer rides on the job's location account; flatten it for the UI.
+  return {
+    ok: true,
+    data: all.slice(0, JOBS_MAX).map(({ location, ...j }) => ({ ...j, customer: location?.account?.name || null })),
+  };
+}
 
-  return { ok: true, data: result.data };
+export async function getJobs() {
+  if (jobsCache && Date.now() - jobsCache.at < JOBS_CACHE_MS) return { ok: true, data: jobsCache.data };
+  // Share one fetch between concurrent callers (the poller and a page load).
+  if (!jobsInflight) jobsInflight = fetchAllJobs().finally(() => { jobsInflight = null; });
+  const result = await jobsInflight;
+  if (result.ok && Array.isArray(result.data)) jobsCache = { at: Date.now(), data: result.data };
+  // On a failed refresh, a stale list beats an empty page.
+  else if (!result.ok && jobsCache) return { ok: true, data: jobsCache.data, stale: true };
+  return result;
+}
+
+// Accept a JobTread id or Jake's job number ("119"). JT ids are long alphanumerics.
+export async function resolveJobId(idOrNumber) {
+  const key = String(idOrNumber);
+  const r = await getJobs();
+  if (!r.ok || !Array.isArray(r.data)) return key;
+  const byId = r.data.find((j) => j.id === key);
+  if (byId) return byId.id;
+  const byNum = r.data.find((j) => String(j.number) === key);
+  return byNum ? byNum.id : key;
 }
