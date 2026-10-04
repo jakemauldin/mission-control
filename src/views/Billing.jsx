@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { C, inn, crd } from "../lib/colors";
 import { Section } from "../components/ui/Card";
 import { btnS, badge, sv } from "../lib/helpers";
@@ -22,6 +23,11 @@ async function api(url, opts = {}) {
 
 // ── Main Component ─────────────────���─────────────────────────
 export default function BillingView({ jobs }) {
+  // Deep links: /money/pay-apps/:jobId/:appNum. App.jsx routes "/money/pay-apps/*",
+  // so both segments arrive in the splat. jobId may be a JT id or Jake's job number.
+  const splat = useParams()["*"] || "";
+  const navigate = useNavigate();
+  const wantApp = useRef(null);
   const [selectedJobId, setSelectedJobId] = useState("");
   const [sov, setSov] = useState(null);        // schedule of values
   const [billing, setBilling] = useState(null); // billing state
@@ -54,8 +60,12 @@ export default function BillingView({ jobs }) {
       setJobInfo(r.data.job);
       setBilling(r.data.billing);
 
-      // If there's a draft app, open it
-      const draft = r.data.billing?.applications?.find((a) => a.status === "draft");
+      // A deep link names the app to open; otherwise open the draft if there is one.
+      const wanted = wantApp.current != null
+        ? r.data.billing?.applications?.find((a) => String(a.number) === String(wantApp.current))
+        : null;
+      wantApp.current = null;
+      const draft = wanted || r.data.billing?.applications?.find((a) => a.status === "draft");
       if (draft) {
         setActiveApp(draft.number);
         setLineItems(draft.lineItems || {});
@@ -67,6 +77,29 @@ export default function BillingView({ jobs }) {
   useEffect(() => {
     if (selectedJobId) loadJob(selectedJobId);
   }, [selectedJobId, loadJob]);
+
+  // URL -> selected job. Waits for the jobs list so a job number can be resolved.
+  useEffect(() => {
+    const [jobKey, appNum] = splat.split("/").filter(Boolean);
+    if (!jobKey) { setSelectedJobId(""); return; }
+    if (!jobs) return;
+    const j = jobs.find((x) => x.id === jobKey) || jobs.find((x) => String(x.number) === jobKey);
+    const id = j ? j.id : jobKey;
+    wantApp.current = appNum || null;
+    setSelectedJobId(id);
+    // Same job, different app link (browser back/forward): no reload, just switch.
+    if (id === selectedJobId && appNum) {
+      const app = billing?.applications?.find((a) => String(a.number) === String(appNum));
+      if (app) { setActiveApp(app.number); setLineItems(app.lineItems || {}); wantApp.current = null; }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [splat, jobs]);
+
+  const jobOptions = useMemo(() => {
+    const byNum = (a, b) => (parseInt(b.number, 10) || 0) - (parseInt(a.number, 10) || 0);
+    const all = jobs || [];
+    return { open: all.filter((j) => !j.closedOn).sort(byNum), closed: all.filter((j) => j.closedOn).sort(byNum) };
+  }, [jobs]);
 
   // Get prior apps for previous totals
   const priorApps = useMemo(() => {
@@ -173,6 +206,11 @@ export default function BillingView({ jobs }) {
 
   const finalizeApp = async () => {
     if (!activeApp) return;
+    const ok = window.confirm(
+      `Finalize pay app #${activeApp} for ${jobInfo?.name || "this job"}${jobInfo?.number ? ` (#${jobInfo.number})` : ""}?\n\n` +
+      "A finalized pay app is locked. It cannot be edited or undone."
+    );
+    if (!ok) return;
     await saveApp();
     const r = await api(`/api/billing/jobs/${selectedJobId}/apps/${activeApp}/finalize`, { method: "POST" });
     if (r.ok) await loadJob(selectedJobId);
@@ -238,7 +276,7 @@ export default function BillingView({ jobs }) {
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             <select
               value={selectedJobId}
-              onChange={(e) => setSelectedJobId(e.target.value)}
+              onChange={(e) => navigate(e.target.value ? `/money/pay-apps/${e.target.value}` : "/money/pay-apps")}
               style={{
                 flex: 1, maxWidth: 400, padding: "8px 12px", borderRadius: 8,
                 background: "rgba(255,255,255,0.06)", border: `1px solid ${C.bdr}`,
@@ -246,12 +284,12 @@ export default function BillingView({ jobs }) {
               }}
             >
               <option value="">Select a job...</option>
-              {(jobs || []).filter((j) => !j.closedOn).map((j) => (
-                <option key={j.id} value={j.id}>{j.name} (#{j.number})</option>
+              {jobOptions.open.map((j) => (
+                <option key={j.id} value={j.id}>#{j.number} {j.name}</option>
               ))}
               <optgroup label="Closed Jobs">
-                {(jobs || []).filter((j) => j.closedOn).map((j) => (
-                  <option key={j.id} value={j.id}>{j.name} (#{j.number})</option>
+                {jobOptions.closed.map((j) => (
+                  <option key={j.id} value={j.id}>#{j.number} {j.name}</option>
                 ))}
               </optgroup>
             </select>
@@ -282,6 +320,7 @@ export default function BillingView({ jobs }) {
                 onClick={() => {
                   setActiveApp(app.number);
                   setLineItems(app.lineItems || {});
+                  navigate(`/money/pay-apps/${selectedJobId}/${app.number}`, { replace: true });
                 }}
                 style={{
                   ...btnS(activeApp === app.number),
@@ -300,6 +339,9 @@ export default function BillingView({ jobs }) {
             <button onClick={createNewApp} style={{ ...btnS(true), fontSize: 11 }}>
               + New Application
             </button>
+            {(billing?.applications || []).length === 0 && (
+              <span style={{ fontSize: 12, color: C.dim }}>No pay apps for this job yet. Click "+ New Application" to start #1.</span>
+            )}
           </div>
         </div>
       )}
@@ -395,8 +437,9 @@ export default function BillingView({ jobs }) {
         <div style={{ ...crd, padding: 40, textAlign: "center" }}>
           <div style={{ fontSize: 28, fontWeight: 700, color: C.bright, marginBottom: 8 }}>G702/G703 Billing</div>
           <div style={{ fontSize: 13, color: C.dim, maxWidth: 500, margin: "0 auto", lineHeight: 1.6 }}>
-            Select a job above to start a payment application. The system pulls your schedule of values from JobTread,
-            lets you enter progress for each line item, and generates AIA-standard G702 cover sheets and G703 continuation sheets.
+            First, pick a job in the box above. Then click "+ New Application" to start a pay app, or open one you already
+            started. The schedule of values comes from the job's cost items in JobTread. You enter progress for each line, and it
+            makes the G702 cover sheet and G703 continuation sheet. Nothing is sent to anyone from here.
           </div>
         </div>
       )}
