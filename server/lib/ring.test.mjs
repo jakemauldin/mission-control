@@ -48,17 +48,27 @@ function device(ring, id, { label = "Laptop", open = true, takesCalls = true, dr
   return ws;
 }
 
-const req = (addr, headers = {}) => ({ socket: { remoteAddress: addr }, headers });
+const req = (addr, headers = {}, port = 3080) => ({ socket: { remoteAddress: addr, localPort: port }, headers: { host: `127.0.0.1:${port}`, ...headers } });
 
 test("loopback check: bare loopback only, any proxy header refuses", () => {
   for (const a of ["127.0.0.1", "::1", "::ffff:127.0.0.1"]) assert.equal(isBareLoopback(req(a)), true, a);
   assert.equal(isBareLoopback(req("100.92.25.23")), false);
   assert.equal(isBareLoopback(req("172.17.0.2")), false);
   assert.equal(isBareLoopback(req(undefined)), false);
-  for (const h of ["x-forwarded-for", "x-real-ip", "forwarded", "tailscale-user-login", "tailscale-user-name"]) {
+  for (const h of ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "forwarded", "tailscale-user-login", "tailscale-user-name"]) {
     assert.equal(isBareLoopback(req("127.0.0.1", { [h]: "1.2.3.4" })), false, h);
   }
-  assert.equal(isBareLoopback(req("127.0.0.1", { host: "x", "content-type": "application/json" })), true);
+  assert.equal(isBareLoopback(req("127.0.0.1", { "content-type": "application/json" })), true);
+});
+
+test("loopback check: Host must be 127.0.0.1 or localhost on the server's own port", () => {
+  assert.equal(isBareLoopback(req("127.0.0.1", { host: "localhost:3080" })), true);
+  assert.equal(isBareLoopback(req("::1", { host: "[::1]:3080" })), true);
+  // what tailscale serve passes through if it ever stopped adding forwarding headers
+  assert.equal(isBareLoopback(req("127.0.0.1", { host: "risingcreek-ai.taild0b4c6.ts.net:8080" })), false);
+  assert.equal(isBareLoopback(req("127.0.0.1", { host: "127.0.0.1:9999" })), false);
+  assert.equal(isBareLoopback(req("127.0.0.1", { host: "evil.com" })), false);
+  assert.equal(isBareLoopback({ socket: { remoteAddress: "127.0.0.1", localPort: 3080 }, headers: {} }), false);
 });
 
 test("create validates input and returns 202 with a 32 hex id", () => {
@@ -402,4 +412,117 @@ test("a device that went away is listed for 10 min, forgotten after an hour", as
   assert.equal(ring.status().devices.length, 0);
   clock.t += 50 * 60_000; ring.sweep();
   assert.equal(ring.devices.size, 0);
+});
+
+test("a device that signs in while the brief POST is in flight is not rung early, and a failed brief cannot be answered", async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const { ring, calls } = rig({ post: async () => { await gate; return { status: 500, ok: false }; } });
+  const a = device(ring, "dev-laptop-1");
+  const { body } = ring.create({ topic: "T", brief: "B", from: "f" });
+  await tick();
+  const b = new FakeWs(); ring.attach(b);
+  b.say({ type: "hello", deviceId: "dev-phone-01", label: "Phone" });
+  b.say({ type: "sign", open: true, takesCalls: true });
+  assert.equal(b.of("ring").length, 0, "no ring before the brief lands");
+  release();
+  await tick(20);
+  assert.equal(a.of("ring").length, 0);
+  assert.equal(b.of("ring").length, 0);
+  assert.equal(ring.get(body.id).state, "fallback_telegram");
+  assert.equal(calls.tg.length, 1);
+});
+
+test("brief failure leaves ringing before the slow Telegram send, so a late answer cannot win", async () => {
+  let tgDone;
+  const slow = new Promise((r) => { tgDone = r; });
+  const { ring, calls } = rig({ post: async () => ({ status: 500, ok: false }), opts: { telegram: async (m) => { calls.tg.push(m); await slow; } } });
+  const a = device(ring, "dev-laptop-1");
+  const { body } = ring.create({ topic: "T", brief: "B", from: "f" });
+  await tick();
+  assert.notEqual(ring.get(body.id).state, "ringing");
+  a.say({ type: "ring_answer", id: body.id });
+  assert.equal(a.of("ring_go").length, 0);
+  tgDone();
+  await tick();
+  assert.equal(ring.get(body.id).state, "fallback_telegram");
+});
+
+test("closing the sign mid-ring cancels that banner and falls back without waiting for the timer", async () => {
+  const { ring, calls } = rig({ opts: { timeouts: { routine: 5000, urgent: 5000, critical: 5000 } } });
+  const a = device(ring, "dev-laptop-1");
+  const { body } = ring.create({ topic: "T", brief: "B", from: "f" });
+  await tick();
+  assert.equal(a.of("ring").length, 1);
+  a.say({ type: "sign", open: false, takesCalls: true });
+  assert.equal(a.of("ring_cancelled").length, 1);
+  await tick();
+  assert.equal(ring.get(body.id).state, "fallback_telegram");
+  assert.equal(calls.tg.length, 1);
+});
+
+test("closing the sign on one of two devices keeps ringing the other", async () => {
+  const { ring } = rig({ opts: { timeouts: { routine: 5000, urgent: 5000, critical: 5000 } } });
+  const a = device(ring, "dev-laptop-1");
+  const b = device(ring, "dev-phone-01", { label: "Phone" });
+  const { body } = ring.create({ topic: "T", brief: "B", from: "f" });
+  await tick();
+  a.say({ type: "sign", open: false, takesCalls: true });
+  assert.equal(a.of("ring_cancelled").length, 1);
+  assert.equal(b.of("ring_cancelled").length, 0);
+  assert.equal(ring.get(body.id).state, "ringing");
+});
+
+test("global cap: 10 rings per 10 min across callers, one log line, window slides", async () => {
+  const { ring, clock, logLines } = rig();
+  for (let i = 0; i < 10; i++) assert.equal(ring.create({ topic: `t${i}`, brief: "", from: `agent-${i}` }).status, 202);
+  assert.equal(ring.create({ topic: "t11", brief: "", from: "agent-new" }).status, 429);
+  assert.equal(ring.create({ topic: "t12", brief: "", from: "agent-newer" }).status, 429);
+  assert.equal(logLines().filter((l) => l.event === "rate_limited_global").length, 1);
+  clock.t += 10 * 60_000 + 1;
+  assert.equal(ring.create({ topic: "t13", brief: "", from: "agent-new" }).status, 202);
+});
+
+test("cell cap: 4th cell ring in an hour goes to Telegram only, even for new topics", async () => {
+  const { ring, calls, clock } = rig();
+  for (let i = 0; i < 4; i++) {
+    ring.create({ topic: `topic ${i}`, brief: "B", urgency: "urgent", from: `agent-${i}` });
+    await tick();
+  }
+  assert.equal(calls.post.filter((c) => c.url.includes("/tw/ring")).length, 3);
+  assert.equal(calls.tg.length, 4);
+  clock.t += 60 * 60_000 + 1;
+  ring.create({ topic: "topic 5", brief: "B", urgency: "urgent", from: "agent-5" });
+  await tick();
+  assert.equal(calls.post.filter((c) => c.url.includes("/tw/ring")).length, 4);
+});
+
+test("a device on a call (busy) is not rung: falls back, and a ring already pending is cancelled", async () => {
+  const { ring, calls } = rig({ opts: { timeouts: { routine: 5000, urgent: 5000, critical: 5000 } } });
+  const a = device(ring, "dev-laptop-1");
+  a.say({ type: "sign", open: true, takesCalls: true, busy: true });
+  const r1 = ring.create({ topic: "second", brief: "B", from: "f" });
+  await tick();
+  assert.equal(a.of("ring").length, 0);
+  assert.equal(ring.get(r1.body.id).state, "fallback_telegram");
+  assert.equal(calls.post.filter((c) => c.url.includes("/live/ceo/brief")).length, 0);
+  // not busy: rings; then a call starts while it rings
+  a.say({ type: "sign", open: true, takesCalls: true, busy: false });
+  const r2 = ring.create({ topic: "third", brief: "B", from: "g" });
+  await tick();
+  assert.equal(a.of("ring").length, 1);
+  a.say({ type: "sign", open: true, takesCalls: true, busy: true });
+  assert.equal(a.of("ring_cancelled").length, 1);
+  await tick();
+  assert.equal(ring.get(r2.body.id).state, "fallback_telegram");
+});
+
+test("an answered ring is never overwritten by a late fallback", async () => {
+  const { ring } = rig();
+  const a = device(ring, "dev-laptop-1");
+  const { body } = ring.create({ topic: "T", brief: "B", from: "f" });
+  await tick();
+  a.say({ type: "ring_answer", id: body.id });
+  await tick(60); // well past the 40 ms test timeout
+  assert.equal(ring.get(body.id).state, "answered");
 });

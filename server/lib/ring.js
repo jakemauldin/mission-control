@@ -20,13 +20,22 @@ import { dirname, join } from "path";
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 // Any of these means the request came through a proxy (nginx, tailscale serve), so the socket
 // address is the proxy's, not the caller's. voice-dump's authorized() uses the same rule.
-const PROXY_HEADERS = ["x-forwarded-for", "x-real-ip", "forwarded", "tailscale-user-login", "tailscale-user-name"];
+const PROXY_HEADERS = [
+  "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "forwarded",
+  "tailscale-user-login", "tailscale-user-name",
+];
 
+// Defense in depth for the tailscale serve path (:8080 proxies to 127.0.0.1:3080): even if a proxy
+// forgot its forwarding headers, it passes the public Host through, and a host-local caller says
+// 127.0.0.1:<port> or localhost:<port>.
 export function isBareLoopback(req) {
   const addr = req?.socket?.remoteAddress;
   if (!LOOPBACK.has(addr)) return false;
   const h = req.headers || {};
-  return !PROXY_HEADERS.some((k) => h[k] !== undefined);
+  if (PROXY_HEADERS.some((k) => h[k] !== undefined)) return false;
+  const port = req.socket.localPort;
+  const host = String(h.host || "").toLowerCase();
+  return !!port && [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`].includes(host);
 }
 
 export function loopbackOnly(req, res, next) {
@@ -40,6 +49,10 @@ const MSG_RATE = { max: 20, windowMs: 10_000 };
 const PING_MS = 20_000;
 const DEAD_MS = 45_000;
 const RING_RATE = { max: 3, windowMs: 10 * 60_000 };
+// Ceilings across every caller, so an agent that keeps changing "from" or "topic" still cannot
+// spam Telegram or Jake's cell. Past the cell cap an urgent ring goes to Telegram only.
+const RING_RATE_ALL = { max: 10, windowMs: 10 * 60_000 };
+const CELL_RATE_ALL = { max: 3, windowMs: 60 * 60_000 };
 const CELL_TOPIC_MS = 30 * 60_000;
 const KEEP_MS = 60 * 60_000;
 // A device with no live socket stays listed for 10 min (a reload, a laptop lid) and is forgotten after an hour.
@@ -110,6 +123,9 @@ export function createRing(opts = {}) {
   const rings = new Map();     // id -> record
   const ringStamps = new Map(); // from -> [ms]
   const cellStamps = new Map(); // topic key -> ms
+  let allStamps = [];           // every accepted ring, any caller
+  let cellAll = [];             // every cell ring, any topic
+  let allCapLogged = false;
 
   function log(entry) {
     try {
@@ -122,9 +138,13 @@ export function createRing(opts = {}) {
   const live = (ws) => ws.readyState === 1;
   const isReachable = (d) => d.open && d.takesCalls && [...d.sockets].some(live);
   const reachableDevices = () => [...devices.values()].filter(isReachable);
+  // A device already on a call can still be "reachable" for the sign, but a second ring would
+  // only be a banner it cannot see, so rings skip it and fall back (cell gets a 409, then Telegram).
+  const isRingable = (d) => isReachable(d) && !d.busy;
+  const ringableDevices = () => [...devices.values()].filter(isRingable);
   const listed = () => [...devices.values()].filter((d) => d.sockets.size > 0 || now() - d.lastSeen < SHOW_OFFLINE_MS);
   const summary = () => listed().map((d) => ({
-    id: d.id, label: d.label, open: d.open, takesCalls: d.takesCalls, dropIn: d.dropIn,
+    id: d.id, label: d.label, open: d.open, takesCalls: d.takesCalls, dropIn: d.dropIn, busy: !!d.busy,
     lastSeen: new Date(d.lastSeen).toISOString(), connected: [...d.sockets].some(live),
   }));
 
@@ -143,7 +163,7 @@ export function createRing(opts = {}) {
     return {
       reachable: reachableDevices().length > 0,
       devices: listed().map((d) => ({
-        label: d.label, open: d.open, takesCalls: d.takesCalls, lastSeen: new Date(d.lastSeen).toISOString(),
+        label: d.label, open: d.open, takesCalls: d.takesCalls, busy: !!d.busy, lastSeen: new Date(d.lastSeen).toISOString(),
       })),
     };
   }
@@ -225,8 +245,20 @@ export function createRing(opts = {}) {
       d.open = m.open === true;
       d.takesCalls = m.takesCalls === true;
       d.dropIn = m.dropIn === true;
+      d.busy = m.busy === true;
       pushPresence();
-      if (isReachable(d)) for (const r of rings.values()) if (r.state === "ringing") ringDevice(r, d);
+      for (const r of rings.values()) {
+        if (r.state !== "ringing") continue;
+        if (isRingable(d)) {
+          // Only after the brief is in: a device that reconnects while the brief POST is in flight
+          // must not be rung early, start() rings every ringable device once the brief lands.
+          if (r.rung) ringDevice(r, d);
+        } else if (r.pending.delete(d.id)) {
+          // sign closed or call started mid-ring: take the banner down and do not wait out the timer
+          sendDevice(d, { type: "ring_cancelled", id: r.id });
+          maybeNoOneLeft(r);
+        }
+      }
     } else if (m.type === "hb") {
       send(ws, { type: "presence", reachable: reachableDevices().length > 0, devices: summary() });
     } else if (m.type === "ring_answer") {
@@ -278,8 +310,16 @@ export function createRing(opts = {}) {
       log({ event: "rate_limited", from: key, topic });
       return { status: 429, body: { ok: false, error: "too many rings from this caller, try again later" } };
     }
+    allStamps = allStamps.filter((x) => t - x < RING_RATE_ALL.windowMs);
+    if (allStamps.length >= RING_RATE_ALL.max) {
+      if (!allCapLogged) log({ event: "rate_limited_global", from: key, topic });
+      allCapLogged = true; // one log line per burst, not one per refused ring
+      return { status: 429, body: { ok: false, error: "too many rings in total, try again later" } };
+    }
+    allCapLogged = false;
     stamps.push(t);
     ringStamps.set(key, stamps);
+    allStamps.push(t);
     for (const [id, r] of rings) if (t - Date.parse(r.createdAt) > KEEP_MS) rings.delete(id);
 
     const iso = new Date(t).toISOString();
@@ -295,7 +335,7 @@ export function createRing(opts = {}) {
   }
 
   async function start(r) {
-    if (reachableDevices().length === 0) {
+    if (ringableDevices().length === 0) {
       setState(r, "no_presence");
       return fallback(r, "no_presence");
     }
@@ -308,13 +348,16 @@ export function createRing(opts = {}) {
       // Without the brief the voice would not know why it called, so do not ring the laptop.
       if (!ok) {
         log({ id: r.id, event: "brief_failed" });
+        // Leave "ringing" before the slow fallback (Telegram can take 30 s), or a device could
+        // still answer a ring it was never given and fallback would overwrite "answered".
+        setState(r, "no_presence", { reason: "brief_failed" });
         return fallback(r, "brief_failed");
       }
     } else {
       log({ id: r.id, event: "would_send", to: "voice-dump /live/ceo/brief", body: { ring: r.id, topic: r.topic, from: r.from } });
     }
     if (r.state !== "ringing") return;
-    for (const d of reachableDevices()) ringDevice(r, d);
+    for (const d of ringableDevices()) ringDevice(r, d);
     if (r.pending.size === 0) { setState(r, "no_presence"); return fallback(r, "no_presence"); }
     r.rung = true;
     log({ id: r.id, event: "ring_sent", devices: [...r.pending] });
@@ -352,7 +395,7 @@ export function createRing(opts = {}) {
   // Declined or disconnected on every device the ring went to: nobody is left to answer.
   function maybeNoOneLeft(r) {
     if (!r.rung) return; // still handing voice-dump the brief
-    const left = [...r.pending].filter((id) => { const d = devices.get(id); return d && isReachable(d); });
+    const left = [...r.pending].filter((id) => { const d = devices.get(id); return d && isRingable(d); });
     if (left.length > 0 || r.state !== "ringing") return;
     clearTimeout(r.timer);
     setState(r, "declined");
@@ -361,13 +404,16 @@ export function createRing(opts = {}) {
 
   // ── fallback ───────────────────────────────────────────────
   async function fallback(r, reason) {
+    if (r.state === "answered") return; // someone picked up, nothing to fall back from
     const text = telegramText(r);
     const t = now();
     const key = r.topic.toLowerCase();
     let cell = false, cellNote = null;
+    cellAll = cellAll.filter((x) => t - x < CELL_RATE_ALL.windowMs);
     if (r.urgency !== "routine") {
       if (isQuietHour(t) && r.urgency !== "critical") cellNote = "quiet_hours";
       else if (t - (cellStamps.get(key) || 0) < CELL_TOPIC_MS) cellNote = "topic_cooldown";
+      else if (cellAll.length >= CELL_RATE_ALL.max) cellNote = "cell_cap";
       else cell = true;
     }
     const jobs = [];
@@ -375,6 +421,7 @@ export function createRing(opts = {}) {
 
     if (cell) {
       cellStamps.set(key, t);
+      cellAll.push(t);
       jobs.push((async () => {
         const url = `${voiceDumpUrl}/tw/ring?mode=auto`;
         const body = { instruct: `${r.topic}: ${r.brief}` };
@@ -392,6 +439,7 @@ export function createRing(opts = {}) {
     })());
     await Promise.all(jobs);
 
+    if (r.state === "answered") return; // answered while Telegram was sending: keep it answered
     r.delivered = cellOk ? "cell" : tgOk ? "telegram" : r.delivered;
     const state = cellOk ? "fallback_cell" : tgOk ? "fallback_telegram" : "fallback_failed";
     setState(r, state, { reason, cellNote, cellOk, tgOk, dryRun });
