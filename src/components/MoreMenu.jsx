@@ -13,6 +13,11 @@ export default function MoreMenu({ items }) {
   const open = openAt === pathname;
   const setOpen = (v) => setOpenAt(v ? pathname : null);
 
+  // Back/forward onto the opening path must not reopen it.
+  // Reset during render (not in an effect) when the path changes.
+  const [seen, setSeen] = useState(pathname);
+  if (seen !== pathname) { setSeen(pathname); setOpenAt(null); }
+
   const active = items.some(n => pathname === n.to || pathname.startsWith(n.to + "/"));
 
   useEffect(() => {

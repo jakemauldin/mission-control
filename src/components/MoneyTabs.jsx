@@ -12,7 +12,7 @@ const TABS = [
 export default function MoneyTabs() {
   return (
     <>
-      <nav aria-label="Money sections" style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: `1px solid ${C.border}`, overflowX: "auto" }}>
+      <nav aria-label="Money sections" style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: `1px solid ${C.border}`, overflowX: "auto", overflowY: "hidden" }}>
         {TABS.map(t => (
           <NavLink key={t.to} to={t.to} style={({ isActive }) => ({
             padding: "9px 14px", fontSize: 14, whiteSpace: "nowrap", textDecoration: "none", marginBottom: -1,

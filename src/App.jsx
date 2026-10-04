@@ -100,7 +100,7 @@ function Shell() {
           </NavLink>
           <NavLink to="/" aria-label="Brief" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none", flex: "none" }}>
             <img src="/logo-64.png" alt="" style={{ width: 26, height: 26, borderRadius: 6 }} />
-            <span className="hidden min-[400px]:block" style={{ fontWeight: 600, fontSize: 15, color: C.bright, fontFamily: "'Poppins',sans-serif", letterSpacing: 0.3 }}>RISING CREEK</span>
+            <span className="hidden lg:block" style={{ fontWeight: 600, fontSize: 15, color: C.bright, fontFamily: "'Poppins',sans-serif", letterSpacing: 0.3 }}>RISING CREEK</span>
           </NavLink>
           <nav aria-label="Main" className="hidden md:flex" style={{ gap: 4, alignItems: "center", marginLeft: 8 }}>
             {NAV.primary.map(n => <NavLink key={n.to} to={n.to} end={n.end} style={() => navStyle({ isActive: isOn(pathname, n) })}>{n.label}</NavLink>)}
@@ -166,10 +166,18 @@ function ExpertiseWrap() {
 export default function App() {
   // Auth gate: one probe against a real authed endpoint decides Login vs Shell.
   const [authed, setAuthed] = useState(null);
+  const [tries, setTries] = useState(0);
   useEffect(() => {
-    fetch("/api/projects").then(r => setAuthed(r.status !== 401)).catch(() => setAuthed(true));
-  }, []);
+    fetch("/api/projects").then(r => setAuthed(r.status !== 401)).catch(() => setAuthed("offline"));
+  }, [tries]);
   if (authed === null) return null;
+  // A failed probe is unknown, not logged in: offer a retry instead of a Shell full of errors.
+  if (authed === "offline") return (
+    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: 16, textAlign: "center" }}>
+      <div>Can't reach Mission Control. Check your connection.</div>
+      <button onClick={() => { setAuthed(null); setTries(t => t + 1); }} style={{ background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 18px", cursor: "pointer", fontSize: 14 }}>Try again</button>
+    </div>
+  );
   return (
     <BrowserRouter>
       {authed
