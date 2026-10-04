@@ -5,8 +5,9 @@ import { WebSocketServer } from "ws";
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { requireAuth, checkPassphrase, makeSessionCookie, clearSessionCookie, validSession } from "./lib/auth.js";
-import { buildBrief, snoozeItem, invalidateBrief } from "./lib/brief.js";
-import { listRfiJobs, getRfi, mediaCounts, updateRfiItem, recentMedia, thumbPathFor } from "./lib/rfis.js";
+import { buildBrief, snoozeItem, invalidateBrief, unsnoozeItem, listSnoozed, decideNeed } from "./lib/brief.js";
+import { listRfiJobs, getRfi, updateRfiItem } from "./lib/rfis.js";
+import { mediaCounts, recentMedia, thumbPathFor } from "./lib/media.js";
 import { systemsOutcomes } from "./lib/systems.js";
 import { readAccessMap, startRefresh as startAccessMapRefresh, refreshStatus as accessMapStatus } from "./lib/accessmap.js";
 import { createGenRequest, listGenRequests } from "./lib/gen.js";
@@ -21,8 +22,8 @@ import { listTabs as listBrowserTabs, openUrl as openBrowserUrl, activate as act
 import { listSkills, getSkill, saveSkill, createSkill, copySkill, deleteSkill, forkSkill } from "./lib/skills.js";
 import chokidar from "chokidar";
 import { homedir } from "os";
-import { execDocker, execDockerJSON } from "./lib/docker.js";
-import { getJobs, getJobDetail } from "./lib/jobtread.js";
+import { execDocker, execDockerJSON, getClawStatus } from "./lib/docker.js";
+import { getJobs, getJobDetail, resolveJobId } from "./lib/jobtread.js";
 import {
   getSettings, saveSettings,
   loadJobBilling, saveJobBilling,
@@ -33,6 +34,7 @@ import {
   createPdfBuffer,
 } from "./lib/billing.js";
 import dotenv from "dotenv";
+import { createRing, loopbackOnly } from "./lib/ring.js";
 import { getProjects, createProject, updateProject, addTodo, updateTodo, deleteTodo, slugify } from "./lib/projects.js";
 
 dotenv.config({ path: join(import.meta.dirname, ".env") });
@@ -63,7 +65,33 @@ app.post("/api/logout", (_req, res) => {
 });
 // Status word only — no file contents, no versions. Safe unauthenticated.
 app.get("/api/health/probe", (_req, res) => res.json({ ok: true }));
+// ── Ring: agents on this host ring Jake's open sign (server/lib/ring.js) ──
+// Host-local only and mounted before the cookie middleware: callers are scripts and Claude
+// sessions with no cookie. loopbackOnly checks the socket address AND refuses proxy headers, so
+// tailscale serve / nginx (which arrive from 127.0.0.1 too) and tailnet peers get 403.
+const ring = createRing();
+app.post("/internal/ring", loopbackOnly, (req, res) => {
+  const r = ring.create(req.body || {});
+  res.status(r.status).json(r.body);
+});
+app.get("/internal/ring/:id", loopbackOnly, (req, res) => {
+  const r = ring.get(req.params.id);
+  if (!r) return res.status(404).json({ ok: false, error: "unknown ring id" });
+  res.json(r);
+});
+
 app.use("/api", requireAuth);
+
+// Sign status for the header pill. voice-dump health is cached 30 s so polling stays cheap.
+let vdHealth = { at: 0, up: false };
+app.get("/api/ring/status", async (_req, res) => {
+  if (Date.now() - vdHealth.at > 30_000) {
+    const base = (process.env.VOICE_DUMP_URL || "http://127.0.0.1:3240").replace(/\/$/, "");
+    const up = await fetch(`${base}/health`, { signal: AbortSignal.timeout(2000) }).then((r) => r.ok).catch(() => false);
+    vdHealth = { at: Date.now(), up };
+  }
+  res.json({ ...ring.status(), voiceDumpUp: vdHealth.up });
+});
 
 // ── Projects: per-project running to-do w/ progress dates (2026-08-16) ──
 // Store: ~/services/projects/projects.json (+ IN-FLIGHT.md headings/plate, read-only).
@@ -132,11 +160,11 @@ app.get("/api/jobs", async (_req, res) => {
 
 // ── OpenClaw status ──────────────────────────────────────────
 app.get("/api/claw/status", async (_req, res) => {
-  const result = await execDockerJSON("openclaw status --json");
+  const result = await getClawStatus();
   if (!result.ok) {
     return res.json({ ok: false, fallback: true, error: result.error });
   }
-  res.json({ ok: true, data: result.data });
+  res.json({ ok: true, data: result.data, ageSec: result.ageSec, refreshError: result.refreshError });
 });
 
 // ── OpenClaw insights ────────────────────────────────────────
@@ -378,6 +406,21 @@ app.post("/api/brief/snooze", (req, res) => {
   try { res.json({ ok: true, data: snoozeItem(key, until) }); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
+app.get("/api/brief/snoozed", async (_req, res) => {
+  try { res.json({ ok: true, data: await listSnoozed() }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post("/api/brief/unsnooze", (req, res) => {
+  const { key } = req.body || {}; // key "*" brings every snoozed row back
+  if (!key) return res.status(400).json({ ok: false, error: "key required" });
+  try { unsnoozeItem(key); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+// Allow / Drop on a voice-dump needs-Jake item; voice-dump owns the decision.
+app.post("/api/brief/needs/:id/decide", async (req, res) => {
+  try { res.json({ ok: true, data: await decideNeed(req.params.id, req.body?.action) }); }
+  catch (e) { res.status(/bad id|must be/.test(e.message) ? 400 : 502).json({ ok: false, error: e.message }); }
+});
 
 // ── RFIs (read-only, DESIGN.md §4) + media counts ────────────
 app.get("/api/rfis", (_req, res) => {
@@ -405,21 +448,28 @@ app.get("/api/systems/outcomes", async (_req, res) => {
 // Job detail (DESIGN.md §10 phase 2): JT overview + RFI counts + pay-app state
 app.get("/api/jobs/:id/detail", async (req, res) => {
   try {
-    const [jt, rfis] = await Promise.all([getJobDetail(req.params.id), Promise.resolve(listRfiJobs())]);
+    // The URL may carry Jake's job number (/jobs/119) or a JT id; JT only takes the id.
+    const jtId = await resolveJobId(req.params.id);
+    const [jt, rfis] = await Promise.all([getJobDetail(jtId), Promise.resolve(listRfiJobs())]);
     let payApps = null;
     try {
-      const b = loadJobBilling(req.params.id);
+      const b = loadJobBilling(jtId);
       payApps = (b?.applications || []).map(a => ({ number: a.number, status: a.finalizedAt ? "finalized" : "draft", periodTo: a.periodTo }));
     } catch { /* no billing store for job */ }
     // ID bridge: JT uses long string ids, RFI dirs use Jake's internal job numbers.
-    // Match directly first, else extract the number from the JT job name ("... #119 ...").
-    let rfi = rfis.find(r => r.jobId === String(req.params.id)) || null;
+    // Match by the job's own number first, then the raw URL value, then a number in the name.
+    const jtJob = jt?.data?.job || jt?.data || jt?.job || jt;
+    let rfi = null;
+    if (jtJob?.number) rfi = rfis.find(r => r.jobId === String(jtJob.number)) || null;
+    if (!rfi) rfi = rfis.find(r => r.jobId === String(req.params.id)) || null;
     if (!rfi) {
-      const jtName = jt?.data?.job?.name || jt?.job?.name || "";
-      const m = /\b(\d{2,3})\b/.exec(jtName);
+      const m = /\b(\d{2,3})\b/.exec(jtJob?.name || "");
       if (m) rfi = rfis.find(r => r.jobId === m[1]) || null;
     }
-    res.json({ ok: jt.ok !== false, data: { jt: jt.data || jt, rfi, payApps } });
+    // Customer comes from the cached jobs list (cheap, and the detail's doc lookup can miss).
+    const listed = (await getJobs()).data;
+    const row = Array.isArray(listed) ? listed.find(j => j.id === jtId) : null;
+    res.json({ ok: jt.ok !== false, data: { jt: jt.data || jt, jtId, customer: row?.customer || jtJob?.customer?.name || null, rfi, payApps } });
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });
 
@@ -586,13 +636,16 @@ app.get("/api/foreclosures", proxyLand("/foreclosures")); // distress pipeline (
 const wss = new WebSocketServer({
   server,
   path: "/ws",
+  maxPayload: 4096, // clients only send small presence messages (ring.js)
   // Same session cookie as /api — an unauthenticated socket gets no push data.
   verifyClient: ({ req }) => validSession(req.headers.cookie),
 });
 const clients = new Set();
 
+ring.startHeartbeat();
 wss.on("connection", (ws) => {
   clients.add(ws);
+  ring.attach(ws); // presence + ring messages, ping/pong liveness
   ws.send(JSON.stringify({ type: "connected", time: new Date().toISOString() }));
 
   ws.on("close", () => clients.delete(ws));
@@ -634,7 +687,7 @@ setInterval(async () => {
   if (clients.size === 0) return;
 
   // Poll claw status
-  const clawResult = await execDockerJSON("openclaw status --json");
+  const clawResult = await getClawStatus(); // cached, so this poll no longer spawns a 10 s docker exec
   if (clawResult.ok) {
     const hash = JSON.stringify(clawResult.data);
     if (hash !== lastHealthHash) {
@@ -663,7 +716,7 @@ setInterval(async () => {
 // ── Sessions: list / revive / stop / pin / park Claude Code sessions (lib/sessions.js) ──
 app.get("/api/sessions", async (_req, res) => {
   const r = await listSessions();
-  res.status(r.ok ? 200 : 500).json({ ok: r.ok, data: r.sessions, settings: getSessionSettings(), message: r.message });
+  res.status(r.ok ? 200 : 500).json({ ok: r.ok, data: r.sessions, settings: getSessionSettings(), message: r.message, ageSec: r.ageSec, refreshing: r.refreshing, refreshError: r.refreshError });
 });
 app.get("/api/sessions/settings", (_req, res) => res.json({ ok: true, data: getSessionSettings() }));
 app.put("/api/sessions/settings", (req, res) => res.json({ ok: true, data: saveSessionSettings(req.body || {}) }));
@@ -806,8 +859,12 @@ if (existsSync(DIST)) {
 }
 
 // ── Start ────────────────────────────────────────────────────
-startAutoPark((msg) => broadcast({ type: "sessions_update", time: new Date().toISOString(), parked: msg }));
-startAutoRevive((msg) => broadcast({ type: "sessions_update", time: new Date().toISOString(), parked: msg }));
+// MC_TEST=1 marks a throwaway test copy (worktree, alternate PORT): it must never park or
+// revive real sessions, since the schedule lives in the shared ~/services/config/sessions.json.
+if (!process.env.MC_TEST) {
+  startAutoPark((msg) => broadcast({ type: "sessions_update", time: new Date().toISOString(), parked: msg }));
+  startAutoRevive((msg) => broadcast({ type: "sessions_update", time: new Date().toISOString(), parked: msg }));
+}
 
 server.listen(PORT, () => {
   console.log(`⚡ Rising Creek API → http://localhost:${PORT}`);

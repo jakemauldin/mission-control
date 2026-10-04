@@ -4,7 +4,7 @@
 // it again under the risingcreek-ai device, phone-reachable with full history, no desktop
 // needed. That is why idle ones can be parked. Settings are shared with the script
 // (~/services/config/sessions.json) and the auto-park timer lives in the dashboard server.
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { C, STATUS } from "../lib/colors";
 import { btnS } from "../lib/helpers";
 import { Section } from "../components/ui/Card";
@@ -38,7 +38,7 @@ function proj(cwd) {
   return p.replace("~/", "");
 }
 
-function SessionRow({ s, busy, onAction }) {
+function SessionRow({ s, busy, onAction, tag }) {
   const live = s.state === "live";
   const isDevice = s.how === "device";
   const working = busy === s.uuid;
@@ -50,7 +50,8 @@ function SessionRow({ s, busy, onAction }) {
           {s.pinned ? "📌 " : ""}{s.title}
         </div>
         <div style={{ fontSize: 11, color: C.dim, fontFamily: C.mono }}>
-          {live ? `live · ${HOW[s.how] || s.how}` : "off"} · {ago(s.lastActivity)} ago · {s.sizeKB >= 1024 ? `${(s.sizeKB / 1024).toFixed(1)} MB` : `${s.sizeKB} KB`}{proj(s.cwd) ? ` · ${proj(s.cwd)}` : ""}
+          {tag && proj(s.cwd) && <span style={{ border: `1px solid ${C.border}`, borderRadius: 6, padding: "0 6px", marginRight: 6 }}>{proj(s.cwd)}</span>}
+          {live ? `live · ${HOW[s.how] || s.how}` : "off"} · {ago(s.lastActivity)} ago · {s.sizeKB >= 1024 ? `${(s.sizeKB / 1024).toFixed(1)} MB` : `${s.sizeKB} KB`}{!tag && proj(s.cwd) ? ` · ${proj(s.cwd)}` : ""}
         </div>
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -129,9 +130,18 @@ export default function SessionsView() {
   const [q, setQ] = useState("");
   const [stateF, setStateF] = useState("all");
   const [showAll, setShowAll] = useState(false);
+  const [dataAt, setDataAt] = useState(0); // when the list on screen was actually built (server age counted)
+  const [slow, setSlow] = useState(false);
+  const [serverErr, setServerErr] = useState(null); // server answered, but its own python refresh is failing
+  const [, tick] = useState(0);
   const { lastMessage } = useWebSocket();
+  const slowTimer = useRef(null);
+  const afterTimer = useRef(null);
 
+  // A failed or slow poll never replaces the list: the last good copy stays and a chip says how old it is.
   const load = useCallback(async () => {
+    clearTimeout(slowTimer.current);
+    slowTimer.current = setTimeout(() => setSlow(true), 8000);
     try {
       const r = await fetch("/api/sessions");
       if (r.status === 401) { setErr("session expired"); return; }
@@ -139,11 +149,18 @@ export default function SessionsView() {
       if (!body.ok) throw new Error(body.message || `HTTP ${r.status}`);
       setData(body.data);
       setSettings(body.settings);
+      setDataAt(Date.now() - (body.ageSec || 0) * 1000);
+      setServerErr(body.refreshError || null);
       setErr(null);
     } catch (e) {
       setErr(e.message);
+    } finally {
+      clearTimeout(slowTimer.current);
+      setSlow(false);
     }
   }, []);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 10000); return () => clearInterval(t); }, []);
+  useEffect(() => () => { clearTimeout(slowTimer.current); clearTimeout(afterTimer.current); }, []);
 
   useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
   useEffect(() => {
@@ -167,6 +184,8 @@ export default function SessionsView() {
     } finally {
       setBusy(null);
       load();
+      clearTimeout(afterTimer.current);
+      afterTimer.current = setTimeout(load, 15000); // the server patched the row at once; this picks up the real refresh
     }
   };
 
@@ -190,7 +209,7 @@ export default function SessionsView() {
     if (body.ok) setSettings(body.data);
   };
 
-  if (err) return <Section title="Sessions"><div style={{ color: C.dim }}>{err}</div></Section>;
+  if (!data && err) return <Section title="Sessions"><div style={{ color: C.dim }}>{err}</div></Section>;
   if (!data) return <Section title="Sessions"><div style={{ color: C.dim }}>Loading…</div></Section>;
 
   const live = data.filter((s) => s.state === "live").length;
@@ -204,11 +223,28 @@ export default function SessionsView() {
     return words.every((w) => hay.includes(w));
   });
   const filtering = words.length > 0 || stateF !== "all";
-  const shown = filtering || showAll ? matches : matches.slice(0, Number(settings?.listCount) || 15);
+  // "Recent" is the 10 most recently active, always on top; the list below skips them so no
+  // session shows twice. Searching or filtering hides the block and searches everything.
+  const recent = [...data].sort((a, b) => new Date(b.lastActivity) - new Date(a.lastActivity)).slice(0, 10);
+  const recentIds = new Set(recent.map((s) => s.uuid));
+  const rest = filtering ? matches : matches.filter((s) => !recentIds.has(s.uuid));
+  const shown = filtering || showAll ? rest : rest.slice(0, Math.max(0, (Number(settings?.listCount) || 15) - recent.length));
+  const staleSec = dataAt ? Math.round((Date.now() - dataAt) / 1000) : 0;
+  const fmtAge = (sec) => (sec < 90 ? `${sec}s` : sec < 5400 ? `${Math.round(sec / 60)}m` : `${Math.round(sec / 3600)}h`);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <Section title="Sessions">
+      {(err || slow || serverErr || staleSec > 150) && (
+        <div style={{ fontSize: 12, color: C.text, padding: "6px 10px", background: "rgba(255,255,255,0.04)", borderRadius: 8 }}>
+          {err || serverErr ? `Refresh failed, showing data from ${fmtAge(staleSec)} ago.` : `Refresh is slow, showing data from ${fmtAge(staleSec)} ago.`}
+        </div>
+      )}
+      {!filtering && (
+        <Section title="Recent">
+          {recent.map((s) => <SessionRow key={s.uuid} s={s} busy={busy} onAction={act} tag />)}
+        </Section>
+      )}
+      <Section title={filtering ? "Sessions" : "All sessions"}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
           <span style={{ fontSize: 12, color: C.dim }}>{live} live · {data.length - live} off. Off means the process is gone (Disconnected on the phone). Revive brings it back under the risingcreek-ai device.</span>
           <span style={{ flex: 1 }} />
@@ -223,9 +259,9 @@ export default function SessionsView() {
               style={{ ...btnS(stateF === f), textTransform: "capitalize" }}>{f === "stopped" ? "Off" : f}</button>
           ))}
           <span style={{ fontSize: 11, color: C.dim }}>
-            showing {shown.length} of {data.length}
+            showing {filtering ? shown.length : shown.length + recent.length} of {data.length}
           </span>
-          {!filtering && data.length > shown.length && <button style={btnS(false)} onClick={() => setShowAll(true)}>Show all {data.length}</button>}
+          {!filtering && !showAll && rest.length > shown.length && <button style={btnS(false)} onClick={() => setShowAll(true)}>Show all {data.length}</button>}
           {!filtering && showAll && <button style={btnS(false)} onClick={() => setShowAll(false)}>Show fewer</button>}
         </div>
         {note && <div style={{ fontSize: 12, color: C.text, padding: "8px 10px", background: "rgba(255,255,255,0.04)", borderRadius: 8, marginBottom: 6, whiteSpace: "pre-wrap" }}>{note}</div>}

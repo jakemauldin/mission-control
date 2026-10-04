@@ -7,6 +7,7 @@ export const C = {
   bg: "#0E0C06",        // warm near-black
   card: "#181509",      // warm card
   border: "#2E2915",    // olive-tinged border
+  bdr: "#2E2915",       // alias of border: Systems, Projects, JobDetail, OpenBills and CommandBar read C.bdr
   text: "#DDD8C6",      // warm off-white body
   dim: "#948D74",       // warm slate
   bright: "#F4EFDE",    // headings

@@ -479,6 +479,14 @@ function PhotoStrip({ effRefs, allRefs, onToggle, onPlace, coverBadge = true }) 
 }
 
 export default function PostBuilder() {
+  // One column on a phone: the two 300px minimums need ~670px, so below 760px stack the preview under the composer.
+  const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && window.innerWidth < 760);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 759px)");
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
   const [caption, setCaption] = useState("");
   const [overrides, setOverrides] = useState({});
   const [tab, setTab] = useState("facebook");
@@ -656,7 +664,7 @@ export default function PostBuilder() {
       <div><Link to="/media" style={{ color: BRAND.link, fontSize: 13, textDecoration: "none" }}>← media</Link>
         <h2 style={{ margin: "6px 0 0", fontSize: 18 }}>Post builder</h2></div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(300px,1fr) minmax(300px,460px)", gap: 16, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: narrow ? "minmax(0,1fr)" : "minmax(300px,1fr) minmax(300px,460px)", gap: 16, alignItems: "start" }}>
         <Section title="Compose">
           <div style={{ marginBottom: 12 }}>
             <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
