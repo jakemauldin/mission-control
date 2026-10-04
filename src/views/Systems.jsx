@@ -15,8 +15,8 @@ const BAD = "#f87171";
 // or activate the tab server-side, then pop this viewer so Jake can see it land.
 const KASM_VIEWER = "https://risingcreek-ai.taild0b4c6.ts.net:7901";
 
-function Dot({ ok }) {
-  return <span style={{ width: 8, height: 8, borderRadius: "50%", background: ok ? OK : BAD, flexShrink: 0, display: "inline-block" }} />;
+function Dot({ ok, warn }) {
+  return <span style={{ width: 8, height: 8, borderRadius: "50%", background: !ok ? BAD : warn ? "#D9A93B" : OK, flexShrink: 0, display: "inline-block" }} />;
 }
 
 // Rows wrap instead of squeezing columns: on a phone the name sits on one line and the
@@ -24,7 +24,7 @@ function Dot({ ok }) {
 function OutcomeRow({ item }) {
   return (
     <div style={{ display: "flex", alignItems: "baseline", columnGap: 10, rowGap: 2, padding: "9px 0", borderBottom: `1px solid ${C.bdr}`, flexWrap: "wrap" }}>
-      <Dot ok={item.ok} />
+      <Dot ok={item.ok} warn={item.warn} />
       <span style={{ fontSize: 13, fontWeight: 600, color: C.bright, flex: "0 1 190px", minWidth: 0 }}>{item.name}</span>
       <span style={{ flex: "1 1 220px", minWidth: 0, fontSize: 12, color: C.dim, overflowWrap: "anywhere" }}>{item.detail || ""}</span>
       {(item.owner || typeof item.ageHours === "number") && (

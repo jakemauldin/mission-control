@@ -4,7 +4,7 @@
 // — not code. Backups get a deeper check: the success LINE, searched through logrotate's
 // .gz rotations, because copytruncate wipes the live file daily and an mtime check alone
 // reported two healthy jobs dead on 2026-08-23.
-import { readFileSync, readdirSync, statSync, existsSync, statfsSync } from "fs";
+import { readFileSync, readdirSync, statSync, statfsSync } from "fs";
 import { gunzipSync } from "zlib";
 import { join } from "path";
 import { homedir } from "os";
@@ -142,10 +142,16 @@ function memoryCard() {
     const swapTotal = m.SwapTotal || 0, swapUsed = swapTotal - (m.SwapFree || 0);
     const swapPct = swapTotal ? Math.round((swapUsed / swapTotal) * 100) : 0;
     const availMB = Math.round(m.MemAvailable || 0);
-    const ok = swapPct <= 80 && availMB >= 2048;
+    // Swap alone does not drain by itself, so full swap with plenty of free RAM is a warning
+    // (ok stays true, overall stays GREEN). RED only when RAM is actually short too.
+    const lowRam = availMB < 2048;
+    const swapHigh = swapPct > 80;
+    const ok = !lowRam && !(swapHigh && availMB < 4096);
     const g = (mb) => `${(mb / 1024).toFixed(1)}G`;
-    return { kind: "memory", name: "Memory and swap (live)", ok,
-      detail: `swap ${swapPct}% used (${g(swapUsed)} of ${g(swapTotal)}), ${g(availMB)} RAM available${ok ? "" : swapPct > 80 ? " — box is thrashing, park sessions" : " — low"}` };
+    const note = !ok ? (swapHigh ? " — swap nearly full and RAM short, park sessions" : " — RAM low")
+      : swapHigh ? " — swap full but RAM is fine, warning only" : "";
+    return { kind: "memory", name: "Memory and swap (live)", ok, warn: ok && swapHigh,
+      detail: `swap ${swapPct}% used (${g(swapUsed)} of ${g(swapTotal)}), ${g(availMB)} RAM available${note}` };
   } catch { return { kind: "memory", name: "Memory and swap (live)", ok: true, detail: "/proc/meminfo unreadable — not provable" }; }
 }
 

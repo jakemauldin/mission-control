@@ -132,9 +132,11 @@ export default function SessionsView() {
   const [showAll, setShowAll] = useState(false);
   const [dataAt, setDataAt] = useState(0); // when the list on screen was actually built (server age counted)
   const [slow, setSlow] = useState(false);
+  const [serverErr, setServerErr] = useState(null); // server answered, but its own python refresh is failing
   const [, tick] = useState(0);
   const { lastMessage } = useWebSocket();
   const slowTimer = useRef(null);
+  const afterTimer = useRef(null);
 
   // A failed or slow poll never replaces the list: the last good copy stays and a chip says how old it is.
   const load = useCallback(async () => {
@@ -148,6 +150,7 @@ export default function SessionsView() {
       setData(body.data);
       setSettings(body.settings);
       setDataAt(Date.now() - (body.ageSec || 0) * 1000);
+      setServerErr(body.refreshError || null);
       setErr(null);
     } catch (e) {
       setErr(e.message);
@@ -157,6 +160,7 @@ export default function SessionsView() {
     }
   }, []);
   useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 10000); return () => clearInterval(t); }, []);
+  useEffect(() => () => { clearTimeout(slowTimer.current); clearTimeout(afterTimer.current); }, []);
 
   useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
   useEffect(() => {
@@ -180,7 +184,8 @@ export default function SessionsView() {
     } finally {
       setBusy(null);
       load();
-      setTimeout(load, 15000); // the server patched the row at once; this picks up the real refresh
+      clearTimeout(afterTimer.current);
+      afterTimer.current = setTimeout(load, 15000); // the server patched the row at once; this picks up the real refresh
     }
   };
 
@@ -229,9 +234,9 @@ export default function SessionsView() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {(err || slow) && (
+      {(err || slow || serverErr || staleSec > 150) && (
         <div style={{ fontSize: 12, color: C.text, padding: "6px 10px", background: "rgba(255,255,255,0.04)", borderRadius: 8 }}>
-          {err ? `Refresh failed, showing data from ${fmtAge(staleSec)} ago.` : `Refresh is slow, showing data from ${fmtAge(staleSec)} ago.`}
+          {err || serverErr ? `Refresh failed, showing data from ${fmtAge(staleSec)} ago.` : `Refresh is slow, showing data from ${fmtAge(staleSec)} ago.`}
         </div>
       )}
       {!filtering && (

@@ -47,12 +47,14 @@ export async function execDockerJSON(command, opts) {
 const CLAW_REFRESH_MS = 60_000;
 let claw = { result: null, at: 0, error: null };
 let clawInflight = null;
+let clawBackoffUntil = 0; // while the Claw is down, don't spawn a 45 s docker exec on every poll
 
 export function refreshClawStatus() {
+  if (!clawInflight && Date.now() < clawBackoffUntil) return Promise.resolve({ ok: false, error: claw.error || "backing off" });
   if (!clawInflight) {
     clawInflight = execDockerJSON("openclaw status --json", { cacheMs: 0, timeout: 45_000 }).then((r) => {
-      if (r.ok && r.data && typeof r.data === "object") claw = { result: r, at: Date.now(), error: null };
-      else claw = { ...claw, error: r.error || "status returned no JSON" };
+      if (r.ok && r.data && typeof r.data === "object") { claw = { result: r, at: Date.now(), error: null }; clawBackoffUntil = 0; }
+      else { claw = { ...claw, error: r.error || "status returned no JSON" }; clawBackoffUntil = Date.now() + 60_000; }
       return r;
     }).finally(() => { clawInflight = null; });
   }
