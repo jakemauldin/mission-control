@@ -4,7 +4,7 @@
 // — not code. Backups get a deeper check: the success LINE, searched through logrotate's
 // .gz rotations, because copytruncate wipes the live file daily and an mtime check alone
 // reported two healthy jobs dead on 2026-08-23.
-import { readFileSync, readdirSync, statSync, existsSync, statfsSync } from "fs";
+import { readFileSync, readdirSync, statSync, statfsSync } from "fs";
 import { gunzipSync } from "zlib";
 import { join } from "path";
 import { homedir } from "os";
@@ -105,18 +105,54 @@ function containerCards() {
   });
 }
 
+// The daily health script already says WHY it went red: an "ALERTS: a | b |" line, and "FAIL:"
+// lines in the body. Carry those into the card so a red snapshot names its cause instead of
+// just the word RED. WARN lines ride along as warnings (YELLOW never turns the card red).
 function healthSnapshot() {
   try {
     const files = readdirSync(LOGS).filter(f => /^health-\d{4}-\d{2}-\d{2}\.log$/.test(f)).sort().reverse();
     for (const f of files) {
-      const txt = readFileSync(join(LOGS, f), "utf-8");
+      const path = join(LOGS, f);
+      const txt = readFileSync(path, "utf-8");
       if (!txt.trim()) continue; // logrotate zeroes older dated files
       const status = /STATUS:\s*(\w+)/.exec(txt)?.[1] || "UNKNOWN";
       const oom = /kernel events? in 24h|Out of memory/i.test(txt);
-      return { kind: "health", name: `Health check (${f.replace("health-", "").replace(".log", "")} 01:00 snapshot)`, ok: status !== "RED", status, oomFlag: oom, detail: `STATUS: ${status} — snapshot, can lag live state` };
+      const alerts = (/^ALERTS:\s*(.*)$/m.exec(txt)?.[1] || "").split("|").map(x => x.trim()).filter(Boolean);
+      const fails = [...txt.matchAll(/^\s*FAIL:\s*(.+)$/gm)].map(m => m[1].trim());
+      const reasons = status === "RED" ? (alerts.length ? alerts : fails) : [];
+      const warnings = [...txt.matchAll(/^\s*WARN:\s*(.+)$/gm)].map(m => m[1].trim());
+      const takenAt = statSync(path).mtime;
+      const ageHours = Math.round((Date.now() - takenAt.getTime()) / 3600000);
+      const date = f.replace("health-", "").replace(".log", "");
+      return {
+        kind: "health", name: `Health check (${date} 01:00 snapshot)`, ok: status !== "RED", status, oomFlag: oom,
+        reasons, fails, warnings, snapshotAt: takenAt.toISOString(), ageHours,
+        detail: status === "RED" && reasons.length ? `RED: ${reasons.join("; ")}` : `STATUS: ${status}`,
+      };
     }
   } catch { /* absent */ }
   return { kind: "health", name: "Health check", ok: false, detail: "no readable health log" };
+}
+
+// Live memory + swap, same thresholds the daily script goes RED on (MemAvailable < 2048M,
+// swap > 80%). Swap was the thing that actually took the box down and had no card.
+function memoryCard() {
+  try {
+    const m = Object.fromEntries(readFileSync("/proc/meminfo", "utf-8").split("\n").map(l => l.split(/:\s+/)).filter(p => p[1]).map(p => [p[0], parseInt(p[1], 10) / 1024]));
+    const swapTotal = m.SwapTotal || 0, swapUsed = swapTotal - (m.SwapFree || 0);
+    const swapPct = swapTotal ? Math.round((swapUsed / swapTotal) * 100) : 0;
+    const availMB = Math.round(m.MemAvailable || 0);
+    // Swap alone does not drain by itself, so full swap with plenty of free RAM is a warning
+    // (ok stays true, overall stays GREEN). RED only when RAM is actually short too.
+    const lowRam = availMB < 2048;
+    const swapHigh = swapPct > 80;
+    const ok = !lowRam && !(swapHigh && availMB < 4096);
+    const g = (mb) => `${(mb / 1024).toFixed(1)}G`;
+    const note = !ok ? (swapHigh ? " — swap nearly full and RAM short, park sessions" : " — RAM low")
+      : swapHigh ? " — swap full but RAM is fine, warning only" : "";
+    return { kind: "memory", name: "Memory and swap (live)", ok, warn: ok && swapHigh,
+      detail: `swap ${swapPct}% used (${g(swapUsed)} of ${g(swapTotal)}), ${g(availMB)} RAM available${note}` };
+  } catch { return { kind: "memory", name: "Memory and swap (live)", ok: true, detail: "/proc/meminfo unreadable — not provable" }; }
 }
 
 // live kernel check (Jake, 2026-08-23: "can the health snapshot refresh at page load?" —
@@ -153,13 +189,18 @@ function kernelCard() {
 
 export async function systemsOutcomes() {
   const [containers, kernel] = await Promise.all([containerCards(), kernelCard()]);
-  const backups = backupCards(), disk = diskCards(), crons = expectationCards();
-  // overall is derived LIVE — the 01:00 snapshot is one labeled card, never the verdict
-  const overall = [...backups, ...disk, ...crons, ...containers, kernel].every(c => c.ok) ? "GREEN" : "RED";
+  const backups = backupCards(), disk = diskCards(), crons = expectationCards(), memory = [memoryCard()];
+  const health = healthSnapshot();
+  // Overall comes from the live cards, but never reads GREEN while the health snapshot says
+  // RED: the header dot and the page used to disagree (design-6). overallReasons names why.
+  const live = [...backups, ...disk, ...crons, ...memory, ...containers, kernel];
+  const overallReasons = live.filter(c => !c.ok).map(c => `${c.name}: ${c.detail}`);
+  if (health.status === "RED") overallReasons.push(`${health.name}: ${health.detail}`);
+  const overall = overallReasons.length ? "RED" : "GREEN";
   return {
     generated: new Date().toISOString(),
-    overall,
-    backups, disk, crons, containers, kernel,
-    health: healthSnapshot(),
+    overall, overallReasons,
+    backups, disk, crons, memory, containers, kernel,
+    health,
   };
 }
