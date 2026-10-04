@@ -1,6 +1,7 @@
 // Systems (DESIGN.md §6): outcomes, not liveness. Did the thing that was supposed to
 // happen actually land, not "is the container up". No props — fetches its own data.
 import { useState, useEffect, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { C, BRAND } from "../lib/colors";
 import { btnS } from "../lib/helpers";
 import { Section } from "../components/ui/Card";
@@ -216,6 +217,9 @@ export default function SystemsView() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ textAlign: "right", fontSize: 12 }}>
+        <Link to="/access" style={{ color: BRAND.link, textDecoration: "none", fontWeight: 600 }}>Access map →</Link>
+      </div>
       <Section title="Attention">
         {attention.length === 0 ? (
           <div style={{ color: OK, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>

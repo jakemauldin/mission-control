@@ -24,6 +24,7 @@ import SessionsView from "./views/Sessions";
 import SkillsView from "./views/Skills";
 import PersonalBillsView from "./views/PersonalBills";
 import ExpertiseView from "./views/Expertise";
+import AccessView from "./views/Access";
 
 function BriefRoute() {
   const [sp] = useSearchParams();
@@ -124,6 +125,7 @@ function Shell() {
           <Route path="/skills" element={<SkillsView />} />
           <Route path="/land" element={<LandFinderView />} />
           <Route path="/expertise" element={<ExpertiseWrap />} />
+          <Route path="/access" element={<AccessView />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

@@ -8,6 +8,7 @@ import { requireAuth, checkPassphrase, makeSessionCookie, clearSessionCookie, va
 import { buildBrief, snoozeItem, invalidateBrief } from "./lib/brief.js";
 import { listRfiJobs, getRfi, mediaCounts, updateRfiItem, recentMedia, thumbPathFor } from "./lib/rfis.js";
 import { systemsOutcomes } from "./lib/systems.js";
+import { readAccessMap, startRefresh as startAccessMapRefresh, refreshStatus as accessMapStatus } from "./lib/accessmap.js";
 import { createGenRequest, listGenRequests } from "./lib/gen.js";
 import { createPost, listPosts, updatePostStatus } from "./lib/posts.js";
 import { suggestPosts, recordSuggestionFeedback, listSuggestBatches, revisePost } from "./lib/suggest.js";
@@ -743,6 +744,30 @@ app.post("/api/skills/:area/:name/fork", async (req, res) => {
     const r = await forkSkill(req.params.area, req.params.name, req.body?.newName);
     if (r.ok) broadcast({ type: "skills_update", time: new Date().toISOString() });
     res.status(r.ok ? 200 : 400).json(r);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+// ── Access map: credential / connection / cron / Bitwarden inventory (lib/accessmap.js) ──
+// GET serves ~/.local/share/access-map/latest.json (or the sample fixture, sample:true, when
+// the collector has never run). Refresh spawns scripts/access-map.py detached, one at a time;
+// body {probe:true} adds --probe (live read-only auth checks). Behind requireAuth above.
+app.get("/api/access-map", (_req, res) => {
+  try {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ ok: true, data: readAccessMap().data });
+  } catch (e) { res.status(500).json({ ok: false, error: `access map unreadable: ${e.message}` }); }
+});
+app.post("/api/access-map/refresh", (req, res) => {
+  try {
+    const r = startAccessMapRefresh({ probe: req.body?.probe === true });
+    if (!r.started) return res.status(409).json({ ok: false, running: true, error: "a refresh is already running" });
+    res.status(202).json({ ok: true, started: true, startedAt: r.startedAt });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.get("/api/access-map/status", (_req, res) => {
+  try {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ ok: true, ...accessMapStatus() });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 

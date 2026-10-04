@@ -1,0 +1,2179 @@
+{
+  "version": 1,
+  "generatedAt": "2026-10-04T20:40:00Z",
+  "host": "risingcreek-ai",
+  "probed": true,
+  "sources": [
+    {
+      "id": "bws",
+      "label": "Bitwarden Secrets Manager",
+      "ok": true,
+      "count": 12,
+      "detail": "2 projects readable",
+      "error": null,
+      "ms": 2100
+    },
+    {
+      "id": "n8n-local",
+      "label": "n8n local",
+      "ok": true,
+      "count": 1,
+      "detail": "1 credential listed",
+      "error": null,
+      "ms": 340
+    },
+    {
+      "id": "n8n-cloud",
+      "label": "n8n cloud",
+      "ok": false,
+      "count": 1,
+      "detail": null,
+      "error": "401 from the n8n cloud API: key rejected. Showing the one credential name seen in a workflow export.",
+      "ms": 910
+    },
+    {
+      "id": "containers",
+      "label": "Containers (docker env)",
+      "ok": true,
+      "count": 2,
+      "detail": "2 containers inspected",
+      "error": null,
+      "ms": 480
+    },
+    {
+      "id": "crontab",
+      "label": "Host crontab + timers",
+      "ok": true,
+      "count": 5,
+      "detail": "cron/crontab.rc + systemd",
+      "error": null,
+      "ms": 60
+    },
+    {
+      "id": "claude",
+      "label": "Claude config dirs",
+      "ok": true,
+      "count": 2,
+      "detail": "~/.claude, ~/.claude-team",
+      "error": null,
+      "ms": 30
+    },
+    {
+      "id": "bw-review",
+      "label": "Bitwarden review (vault metadata)",
+      "ok": true,
+      "count": 9,
+      "detail": "bw-review 2026-09-12",
+      "error": null,
+      "ms": 15
+    }
+  ],
+  "summary": {
+    "services": 11,
+    "credentials": 25,
+    "consumers": 19,
+    "connections": 22,
+    "crons": 10,
+    "findings": {
+      "high": 3,
+      "medium": 5,
+      "low": 4
+    }
+  },
+  "services": [
+    {
+      "id": "svc:openai",
+      "name": "OpenAI",
+      "category": "ai",
+      "accounts": [
+        "ops@rcc.example"
+      ],
+      "notes": "Image generation and embeddings. One org key, shared by three consumers.",
+      "bitwardenSites": [
+        "openai.com"
+      ],
+      "credentialIds": [
+        "cred:bws:Production:OPENAI_API_KEY",
+        "cred:container-env:openclaw:OPENAI_API_KEY",
+        "cred:env-file:services/openclaw/.env:OPENAI_API_KEY"
+      ],
+      "connectionIds": [
+        "conn:ctr:openclaw->svc:openai:api",
+        "conn:host:scripts/gen-image->svc:openai:api"
+      ],
+      "findingIds": []
+    },
+    {
+      "id": "svc:anthropic",
+      "name": "Anthropic / Claude",
+      "category": "ai",
+      "accounts": [
+        "jake@rcc.example (Max)",
+        "seat2@rcc.example (Team)"
+      ],
+      "notes": "Two Claude logins on this box. The Team seat is the one that lapsed.",
+      "bitwardenSites": [],
+      "credentialIds": [
+        "cred:claude-login:~/.claude",
+        "cred:claude-login:~/.claude-team"
+      ],
+      "connectionIds": [
+        "conn:cfg:claude-home->svc:anthropic:cli",
+        "conn:cfg:claude-team->svc:anthropic:cli"
+      ],
+      "findingIds": [
+        "F001"
+      ]
+    },
+    {
+      "id": "svc:microsoft",
+      "name": "Microsoft 365 / Outlook",
+      "category": "email",
+      "accounts": [
+        "jake@rcc.example",
+        "ops@rcc.example"
+      ],
+      "notes": null,
+      "bitwardenSites": [
+        "live.com"
+      ],
+      "credentialIds": [
+        "cred:bws:Production:HOTMAIL_REFRESH_TOKEN",
+        "cred:oauth-file:~/.openclaw/hotmail-token.json:refresh_token",
+        "cred:connector:claude.ai/Microsoft 365",
+        "cred:container-env:openclaw:MICROSOFT_CLIENT_SECRET"
+      ],
+      "connectionIds": [
+        "conn:ctr:openclaw->svc:microsoft:oauth",
+        "conn:host:scripts/hm->svc:microsoft:api",
+        "conn:connector:microsoft365->svc:microsoft:connector"
+      ],
+      "findingIds": [
+        "F003"
+      ]
+    },
+    {
+      "id": "svc:qbo",
+      "name": "QuickBooks Online",
+      "category": "accounting",
+      "accounts": [
+        "Rising Creek Construction LLC"
+      ],
+      "notes": "Refresh token rotates every 101 days. The keep-alive cron is what keeps it alive.",
+      "bitwardenSites": [
+        "intuit.com",
+        "quickbooks.intuit.com"
+      ],
+      "credentialIds": [
+        "cred:bws:Production:QBO_REFRESH_TOKEN",
+        "cred:bws:Production:QBO_CLIENT_SECRET"
+      ],
+      "connectionIds": [
+        "conn:cron:host:12->svc:qbo:oauth",
+        "conn:sys:mission-control->svc:qbo:api"
+      ],
+      "findingIds": [
+        "F007"
+      ]
+    },
+    {
+      "id": "svc:jobtread",
+      "name": "JobTread",
+      "category": "project-management",
+      "accounts": [
+        "Rising Creek Construction LLC"
+      ],
+      "notes": null,
+      "bitwardenSites": [
+        "jobtread.com"
+      ],
+      "credentialIds": [
+        "cred:bws:Production:JOBTREAD_GRANT_KEY",
+        "cred:mcp-config:openclaw/jobtread-mcp"
+      ],
+      "connectionIds": [
+        "conn:sys:mission-control->svc:jobtread:api",
+        "conn:mcp:jobtread->svc:jobtread:mcp"
+      ],
+      "findingIds": [
+        "F002"
+      ]
+    },
+    {
+      "id": "svc:twilio",
+      "name": "Twilio",
+      "category": "messaging",
+      "accounts": [
+        "AC00000000000000000000000000000000"
+      ],
+      "notes": null,
+      "bitwardenSites": [
+        "twilio.com"
+      ],
+      "credentialIds": [
+        "cred:bws:Production:TWILIO_AUTH_TOKEN",
+        "cred:n8n-local:Twilio account:authToken"
+      ],
+      "connectionIds": [
+        "conn:host:scripts/hm->svc:twilio:api",
+        "conn:n8n:wf:lead-intake->svc:twilio:n8n-credential"
+      ],
+      "findingIds": []
+    },
+    {
+      "id": "svc:telegram",
+      "name": "Telegram Bot API",
+      "category": "messaging",
+      "accounts": [
+        "@rcc_ops_bot"
+      ],
+      "notes": null,
+      "bitwardenSites": [],
+      "credentialIds": [
+        "cred:bws:Production:TELEGRAM_BOT_TOKEN",
+        "cred:env-file:claude-code-telegram/.env:TELEGRAM_BOT_TOKEN",
+        "cred:secrets-file:~/.secrets/telegram-bot"
+      ],
+      "connectionIds": [
+        "conn:ctr:openclaw->svc:telegram:api",
+        "conn:ctr:n8n->svc:telegram:webhook",
+        "conn:host:scripts/tg-listener->svc:telegram:api",
+        "conn:host:scripts/tg-send->svc:telegram:cli"
+      ],
+      "findingIds": []
+    },
+    {
+      "id": "svc:docusign",
+      "name": "DocuSign",
+      "category": "contracts",
+      "accounts": [
+        "jake@rcc.example"
+      ],
+      "notes": "Integration key was set up for a flow that was never built.",
+      "bitwardenSites": [
+        "docusign.net"
+      ],
+      "credentialIds": [
+        "cred:bws:Production:DOCUSIGN_INTEGRATION_KEY"
+      ],
+      "connectionIds": [
+        "conn:oc:agent:main->svc:docusign:browser-session"
+      ],
+      "findingIds": [
+        "F008"
+      ]
+    },
+    {
+      "id": "svc:mailchimp",
+      "name": "Mailchimp",
+      "category": "marketing",
+      "accounts": [
+        "rcc-main"
+      ],
+      "notes": null,
+      "bitwardenSites": [
+        "mailchimp.com"
+      ],
+      "credentialIds": [
+        "cred:bws:Production:MAILCHIMP_API_KEY",
+        "cred:n8n-cloud:Mailchimp rcc-main",
+        "cred:bws:Staging:MAILCHIMP_API_KEY_NEW"
+      ],
+      "connectionIds": [
+        "conn:n8n:wf:mailchimp-sync->svc:mailchimp:n8n-credential",
+        "conn:host:scripts/mc-sync->svc:mailchimp:api"
+      ],
+      "findingIds": []
+    },
+    {
+      "id": "svc:n8n",
+      "name": "n8n",
+      "category": "automation",
+      "accounts": [
+        "local instance",
+        "cloud workspace rcc"
+      ],
+      "notes": null,
+      "bitwardenSites": [],
+      "credentialIds": [
+        "cred:bws:Production:N8N_API_KEY"
+      ],
+      "connectionIds": [
+        "conn:host:scripts/n8n-export->svc:n8n:api"
+      ],
+      "findingIds": []
+    },
+    {
+      "id": "svc:bws",
+      "name": "Bitwarden Secrets Manager",
+      "category": "secrets",
+      "accounts": [
+        "org rcc"
+      ],
+      "notes": null,
+      "bitwardenSites": [],
+      "credentialIds": [
+        "cred:secrets-file:~/.secrets/bws-token"
+      ],
+      "connectionIds": [
+        "conn:host:start.sh->svc:bws:cli"
+      ],
+      "findingIds": []
+    }
+  ],
+  "credentials": [
+    {
+      "created": null,
+      "updated": "2026-08-12T15:02:00Z",
+      "expires": null,
+      "ageDays": 53,
+      "fingerprint": "a3f19c02",
+      "dupGroup": "K01",
+      "scopes": null,
+      "account": "ops@rcc.example",
+      "consumerIds": [
+        "ctr:openclaw",
+        "host:scripts/gen-image"
+      ],
+      "status": "ok",
+      "statusDetail": "rotated 53 days ago",
+      "probe": {
+        "ok": true,
+        "at": "2026-10-04T20:40:00Z",
+        "detail": "GET /v1/models 200"
+      },
+      "id": "cred:bws:Production:OPENAI_API_KEY",
+      "name": "OPENAI_API_KEY",
+      "store": "bws",
+      "location": "BWS project Production",
+      "kind": "api_key",
+      "serviceId": "svc:openai",
+      "findingIds": [
+        "F005"
+      ]
+    },
+    {
+      "created": null,
+      "updated": null,
+      "expires": null,
+      "ageDays": null,
+      "fingerprint": "a3f19c02",
+      "dupGroup": "K01",
+      "scopes": null,
+      "account": "ops@rcc.example",
+      "consumerIds": [
+        "ctr:openclaw"
+      ],
+      "status": "ok",
+      "statusDetail": "same value as the BWS copy",
+      "probe": null,
+      "id": "cred:container-env:openclaw:OPENAI_API_KEY",
+      "name": "OPENAI_API_KEY",
+      "store": "container-env",
+      "location": "docker env, container openclaw",
+      "kind": "api_key",
+      "serviceId": "svc:openai",
+      "findingIds": [
+        "F005"
+      ]
+    },
+    {
+      "created": null,
+      "updated": "2026-06-30T10:11:00Z",
+      "expires": null,
+      "ageDays": 96,
+      "fingerprint": "a3f19c02",
+      "dupGroup": "K01",
+      "scopes": null,
+      "account": "ops@rcc.example",
+      "consumerIds": [
+        "ctr:openclaw"
+      ],
+      "status": "ok",
+      "statusDetail": "plaintext copy of a BWS secret",
+      "probe": null,
+      "id": "cred:env-file:services/openclaw/.env:OPENAI_API_KEY",
+      "name": "OPENAI_API_KEY",
+      "store": "env-file",
+      "location": "~/services/openclaw/.env:14",
+      "kind": "api_key",
+      "serviceId": "svc:openai",
+      "findingIds": [
+        "F005"
+      ]
+    },
+    {
+      "created": null,
+      "updated": "2026-09-30T08:20:00Z",
+      "expires": null,
+      "ageDays": 4,
+      "fingerprint": "b81e4d77",
+      "dupGroup": null,
+      "scopes": [
+        "Mail.ReadWrite",
+        "Mail.Send",
+        "offline_access"
+      ],
+      "account": "jake@rcc.example",
+      "consumerIds": [
+        "host:scripts/hm",
+        "ctr:openclaw"
+      ],
+      "status": "ok",
+      "statusDetail": "refreshed 4 days ago",
+      "probe": {
+        "ok": true,
+        "at": "2026-10-04T20:40:00Z",
+        "detail": "GET /me 200"
+      },
+      "id": "cred:bws:Production:HOTMAIL_REFRESH_TOKEN",
+      "name": "HOTMAIL_REFRESH_TOKEN",
+      "store": "bws",
+      "location": "BWS project Production",
+      "kind": "oauth_refresh",
+      "serviceId": "svc:microsoft",
+      "findingIds": [
+        "F003"
+      ]
+    },
+    {
+      "created": null,
+      "updated": "2026-07-02T08:20:00Z",
+      "expires": null,
+      "ageDays": 94,
+      "fingerprint": "9d22aa10",
+      "dupGroup": null,
+      "scopes": [
+        "Mail.ReadWrite",
+        "offline_access"
+      ],
+      "account": "jake@rcc.example",
+      "consumerIds": [
+        "host:scripts/hm"
+      ],
+      "status": "drift",
+      "statusDetail": "differs from the BWS copy; the BWS one is newer",
+      "probe": {
+        "ok": false,
+        "at": "2026-10-04T20:40:00Z",
+        "detail": "POST /token 400 invalid_grant"
+      },
+      "id": "cred:oauth-file:~/.openclaw/hotmail-token.json:refresh_token",
+      "name": "hotmail-token.json refresh_token",
+      "store": "oauth-file",
+      "location": "~/.openclaw/hotmail-token.json",
+      "kind": "oauth_refresh",
+      "serviceId": "svc:microsoft",
+      "findingIds": [
+        "F003"
+      ]
+    },
+    {
+      "created": null,
+      "updated": "2026-06-30T04:00:00Z",
+      "expires": "2026-10-09T04:00:00Z",
+      "ageDays": 96,
+      "fingerprint": "e07c5b19",
+      "dupGroup": null,
+      "scopes": [
+        "com.intuit.quickbooks.accounting"
+      ],
+      "account": "Rising Creek Construction LLC",
+      "consumerIds": [
+        "cron:host:12",
+        "sys:mission-control"
+      ],
+      "status": "expiring",
+      "statusDetail": "expires in 5 days unless the keep-alive runs",
+      "probe": null,
+      "id": "cred:bws:Production:QBO_REFRESH_TOKEN",
+      "name": "QBO_REFRESH_TOKEN",
+      "store": "bws",
+      "location": "BWS project Production",
+      "kind": "oauth_refresh",
+      "serviceId": "svc:qbo",
+      "findingIds": [
+        "F004"
+      ]
+    },
+    {
+      "created": null,
+      "updated": "2026-02-11T17:30:00Z",
+      "expires": null,
+      "ageDays": 235,
+      "fingerprint": "71d3a0cc",
+      "dupGroup": null,
+      "scopes": null,
+      "account": null,
+      "consumerIds": [
+        "cron:host:12",
+        "sys:mission-control"
+      ],
+      "status": "ok",
+      "statusDetail": null,
+      "probe": null,
+      "id": "cred:bws:Production:QBO_CLIENT_SECRET",
+      "name": "QBO_CLIENT_SECRET",
+      "store": "bws",
+      "location": "BWS project Production",
+      "kind": "oauth_client",
+      "serviceId": "svc:qbo",
+      "findingIds": []
+    },
+    {
+      "created": null,
+      "updated": "2026-09-02T12:00:00Z",
+      "expires": null,
+      "ageDays": 32,
+      "fingerprint": "0c4be8f6",
+      "dupGroup": null,
+      "scopes": [
+        "org:read",
+        "jobs:write"
+      ],
+      "account": "Rising Creek Construction LLC",
+      "consumerIds": [
+        "sys:mission-control",
+        "mcp:jobtread"
+      ],
+      "status": "failing",
+      "statusDetail": "live check rejected the key",
+      "probe": {
+        "ok": false,
+        "at": "2026-10-04T20:40:00Z",
+        "detail": "POST /pave 401 unauthorized"
+      },
+      "id": "cred:bws:Production:JOBTREAD_GRANT_KEY",
+      "name": "JOBTREAD_GRANT_KEY",
+      "store": "bws",
+      "location": "BWS project Production",
+      "kind": "api_key",
+      "serviceId": "svc:jobtread",
+      "findingIds": [
+        "F002"
+      ]
+    },
+    {
+      "created": null,
+      "updated": "2026-05-19T09:00:00Z",
+      "expires": null,
+      "ageDays": 138,
+      "fingerprint": "c4410be5",
+      "dupGroup": "K02",
+      "scopes": null,
+      "account": "AC00000000000000000000000000000000",
+      "consumerIds": [
+        "host:scripts/hm"
+      ],
+      "status": "ok",
+      "statusDetail": null,
+      "probe": {
+        "ok": true,
+        "at": "2026-10-04T20:40:00Z",
+        "detail": "GET /Accounts 200"
+      },
+      "id": "cred:bws:Production:TWILIO_AUTH_TOKEN",
+      "name": "TWILIO_AUTH_TOKEN",
+      "store": "bws",
+      "location": "BWS project Production",
+      "kind": "api_secret",
+      "serviceId": "svc:twilio",
+      "findingIds": []
+    },
+    {
+      "created": null,
+      "updated": "2026-05-19T09:30:00Z",
+      "expires": null,
+      "ageDays": 138,
+      "fingerprint": "c4410be5",
+      "dupGroup": "K02",
+      "scopes": null,
+      "account": "AC00000000000000000000000000000000",
+      "consumerIds": [
+        "n8n:wf:lead-intake"
+      ],
+      "status": "ok",
+      "statusDetail": null,
+      "probe": null,
+      "id": "cred:n8n-local:Twilio account:authToken",
+      "name": "Twilio account (authToken)",
+      "store": "n8n-local",
+      "location": "n8n local credential #14",
+      "kind": "api_secret",
+      "serviceId": "svc:twilio",
+      "findingIds": []
+    },
+    {
+      "created": null,
+      "updated": "2026-03-03T14:00:00Z",
+      "expires": null,
+      "ageDays": 215,
+      "fingerprint": "5e7a90d3",
+      "dupGroup": "K03",
+      "scopes": null,
+      "account": "@rcc_ops_bot",
+      "consumerIds": [
+        "ctr:openclaw",
+        "ctr:n8n"
+      ],
+      "status": "ok",
+      "statusDetail": null,
+      "probe": {
+        "ok": true,
+        "at": "2026-10-04T20:40:00Z",
+        "detail": "getMe ok"
+      },
+      "id": "cred:bws:Production:TELEGRAM_BOT_TOKEN",
+      "name": "TELEGRAM_BOT_TOKEN",
+      "store": "bws",
+      "location": "BWS project Production",
+      "kind": "bot_token",
+      "serviceId": "svc:telegram",
+      "findingIds": []
+    },
+    {
+      "created": null,
+      "updated": "2026-03-03T14:05:00Z",
+      "expires": null,
+      "ageDays": 215,
+      "fingerprint": "5e7a90d3",
+      "dupGroup": "K03",
+      "scopes": null,
+      "account": "@rcc_ops_bot",
+      "consumerIds": [
+        "host:scripts/tg-listener"
+      ],
+      "status": "ok",
+      "statusDetail": "plaintext copy of a BWS secret",
+      "probe": null,
+      "id": "cred:env-file:claude-code-telegram/.env:TELEGRAM_BOT_TOKEN",
+      "name": "TELEGRAM_BOT_TOKEN",
+      "store": "env-file",
+      "location": "~/services/claude-code-telegram/.env:3",
+      "kind": "bot_token",
+      "serviceId": "svc:telegram",
+      "findingIds": [
+        "F006"
+      ]
+    },
+    {
+      "created": null,
+      "updated": "2026-03-03T14:07:00Z",
+      "expires": null,
+      "ageDays": 215,
+      "fingerprint": "5e7a90d3",
+      "dupGroup": "K03",
+      "scopes": null,
+      "account": "@rcc_ops_bot",
+      "consumerIds": [
+        "host:scripts/tg-send"
+      ],
+      "status": "ok",
+      "statusDetail": null,
+      "probe": null,
+      "id": "cred:secrets-file:~/.secrets/telegram-bot",
+      "name": "telegram-bot",
+      "store": "secrets-file",
+      "location": "~/.secrets/telegram-bot (0600)",
+      "kind": "bot_token",
+      "serviceId": "svc:telegram",
+      "findingIds": [
+        "F006"
+      ]
+    },
+    {
+      "created": null,
+      "updated": "2025-08-21T11:00:00Z",
+      "expires": null,
+      "ageDays": 409,
+      "fingerprint": "3b90d1e4",
+      "dupGroup": null,
+      "scopes": [
+        "signature",
+        "impersonation"
+      ],
+      "account": "jake@rcc.example",
+      "consumerIds": [],
+      "status": "unused",
+      "statusDetail": "no consumer found in containers, scripts, n8n or crontab",
+      "probe": null,
+      "id": "cred:bws:Production:DOCUSIGN_INTEGRATION_KEY",
+      "name": "DOCUSIGN_INTEGRATION_KEY",
+      "store": "bws",
+      "location": "BWS project Production",
+      "kind": "oauth_client",
+      "serviceId": "svc:docusign",
+      "findingIds": [
+        "F008"
+      ]
+    },
+    {
+      "created": null,
+      "updated": "2025-08-10T16:00:00Z",
+      "expires": null,
+      "ageDays": 420,
+      "fingerprint": "f2a18c60",
+      "dupGroup": null,
+      "scopes": null,
+      "account": "rcc-main",
+      "consumerIds": [
+        "host:scripts/mc-sync"
+      ],
+      "status": "stale",
+      "statusDetail": "not rotated in 420 days",
+      "probe": null,
+      "id": "cred:bws:Production:MAILCHIMP_API_KEY",
+      "name": "MAILCHIMP_API_KEY",
+      "store": "bws",
+      "location": "BWS project Production",
+      "kind": "api_key",
+      "serviceId": "svc:mailchimp",
+      "findingIds": [
+        "F009"
+      ]
+    },
+    {
+      "created": null,
+      "updated": null,
+      "expires": null,
+      "ageDays": null,
+      "fingerprint": null,
+      "dupGroup": null,
+      "scopes": null,
+      "account": "rcc-main",
+      "consumerIds": [
+        "n8n:wf:mailchimp-sync"
+      ],
+      "status": "unknown",
+      "statusDetail": "n8n cloud does not return credential values; source was unreachable",
+      "probe": null,
+      "id": "cred:n8n-cloud:Mailchimp rcc-main",
+      "name": "Mailchimp rcc-main",
+      "store": "n8n-cloud",
+      "location": "n8n cloud credential",
+      "kind": "api_key",
+      "serviceId": "svc:mailchimp",
+      "findingIds": [
+        "F011"
+      ]
+    },
+    {
+      "created": null,
+      "updated": "2026-10-04T13:12:00Z",
+      "expires": "2026-10-04T21:12:00Z",
+      "ageDays": 0,
+      "fingerprint": "8844be21",
+      "dupGroup": null,
+      "scopes": null,
+      "account": "jake@rcc.example (Max)",
+      "consumerIds": [
+        "cfg:claude-home"
+      ],
+      "status": "ok",
+      "statusDetail": "access token refreshes itself while a session is open",
+      "probe": null,
+      "id": "cred:claude-login:~/.claude",
+      "name": "Claude login (~/.claude)",
+      "store": "claude-login",
+      "location": "~/.claude/.credentials.json",
+      "kind": "session",
+      "serviceId": "svc:anthropic",
+      "findingIds": []
+    },
+    {
+      "created": null,
+      "updated": "2026-09-21T09:00:00Z",
+      "expires": "2026-09-28T09:00:00Z",
+      "ageDays": 13,
+      "fingerprint": "2c6f77a9",
+      "dupGroup": null,
+      "scopes": null,
+      "account": "seat2@rcc.example (Team)",
+      "consumerIds": [
+        "cfg:claude-team"
+      ],
+      "status": "expired",
+      "statusDetail": "expired 6 days ago; needs an interactive login",
+      "probe": null,
+      "id": "cred:claude-login:~/.claude-team",
+      "name": "Claude login (~/.claude-team)",
+      "store": "claude-login",
+      "location": "~/.claude-team/.credentials.json",
+      "kind": "session",
+      "serviceId": "svc:anthropic",
+      "findingIds": [
+        "F001"
+      ]
+    },
+    {
+      "created": null,
+      "updated": null,
+      "expires": null,
+      "ageDays": null,
+      "fingerprint": null,
+      "dupGroup": null,
+      "scopes": [
+        "Mail.Read",
+        "Calendars.ReadWrite"
+      ],
+      "account": "jake@rcc.example",
+      "consumerIds": [
+        "connector:microsoft365"
+      ],
+      "status": "ok",
+      "statusDetail": "connected per the session connector list",
+      "probe": null,
+      "id": "cred:connector:claude.ai/Microsoft 365",
+      "name": "claude.ai connector: Microsoft 365",
+      "store": "connector",
+      "location": "claude.ai connectors",
+      "kind": "oauth_access",
+      "serviceId": "svc:microsoft",
+      "findingIds": []
+    },
+    {
+      "created": null,
+      "updated": "2026-08-30T09:00:00Z",
+      "expires": null,
+      "ageDays": 35,
+      "fingerprint": null,
+      "dupGroup": null,
+      "scopes": [],
+      "account": null,
+      "consumerIds": [
+        "mcp:jobtread"
+      ],
+      "status": "ok",
+      "statusDetail": null,
+      "probe": null,
+      "id": "cred:mcp-config:openclaw/jobtread-mcp",
+      "name": "jobtread-mcp url + header",
+      "store": "mcp-config",
+      "location": "openclaw mcp config, server jobtread",
+      "kind": "url",
+      "serviceId": "svc:jobtread",
+      "findingIds": []
+    },
+    {
+      "created": null,
+      "updated": "2026-07-14T09:00:00Z",
+      "expires": null,
+      "ageDays": 82,
+      "fingerprint": "d90e3a47",
+      "dupGroup": null,
+      "scopes": null,
+      "account": null,
+      "consumerIds": [
+        "host:scripts/n8n-export"
+      ],
+      "status": "ok",
+      "statusDetail": null,
+      "probe": null,
+      "id": "cred:bws:Production:N8N_API_KEY",
+      "name": "N8N_API_KEY",
+      "store": "bws",
+      "location": "BWS project Production",
+      "kind": "api_key",
+      "serviceId": "svc:n8n",
+      "findingIds": []
+    },
+    {
+      "created": null,
+      "updated": "2026-09-12T09:00:00Z",
+      "expires": null,
+      "ageDays": 22,
+      "fingerprint": null,
+      "dupGroup": null,
+      "scopes": null,
+      "account": null,
+      "consumerIds": [],
+      "status": "empty",
+      "statusDetail": "secret exists with an empty value",
+      "probe": null,
+      "id": "cred:bws:Staging:MAILCHIMP_API_KEY_NEW",
+      "name": "MAILCHIMP_API_KEY_NEW",
+      "store": "bws",
+      "location": "BWS project Staging",
+      "kind": "api_key",
+      "serviceId": "svc:mailchimp",
+      "findingIds": []
+    },
+    {
+      "created": null,
+      "updated": "2026-01-09T09:00:00Z",
+      "expires": null,
+      "ageDays": 268,
+      "fingerprint": "6a1d5c3e",
+      "dupGroup": null,
+      "scopes": [
+        "read: Production"
+      ],
+      "account": null,
+      "consumerIds": [
+        "host:start.sh"
+      ],
+      "status": "ok",
+      "statusDetail": null,
+      "probe": null,
+      "id": "cred:secrets-file:~/.secrets/bws-token",
+      "name": "bws-token (Host - Injector)",
+      "store": "secrets-file",
+      "location": "~/.secrets/bws-token (0600)",
+      "kind": "pat",
+      "serviceId": "svc:bws",
+      "findingIds": [
+        "F012"
+      ]
+    },
+    {
+      "created": null,
+      "updated": null,
+      "expires": null,
+      "ageDays": null,
+      "fingerprint": "12ab34cd",
+      "dupGroup": null,
+      "scopes": null,
+      "account": null,
+      "consumerIds": [
+        "ctr:openclaw"
+      ],
+      "status": "unknown",
+      "statusDetail": "value not in BWS, so nothing to compare against",
+      "probe": null,
+      "id": "cred:container-env:openclaw:MICROSOFT_CLIENT_SECRET",
+      "name": "MICROSOFT_CLIENT_SECRET",
+      "store": "container-env",
+      "location": "docker env, container openclaw",
+      "kind": "oauth_client",
+      "serviceId": "svc:microsoft",
+      "findingIds": []
+    },
+    {
+      "created": null,
+      "updated": "2026-04-01T09:00:00Z",
+      "expires": null,
+      "ageDays": 186,
+      "fingerprint": "77c0e9b2",
+      "dupGroup": null,
+      "scopes": null,
+      "account": null,
+      "consumerIds": [],
+      "status": "unused",
+      "statusDetail": "no service or consumer found",
+      "probe": null,
+      "id": "cred:bws:Production:SPARE_SSH_KEY",
+      "name": "SPARE_SSH_KEY",
+      "store": "bws",
+      "location": "BWS project Production",
+      "kind": "private_key",
+      "serviceId": null,
+      "findingIds": []
+    }
+  ],
+  "consumers": [
+    {
+      "id": "ctr:openclaw",
+      "kind": "container",
+      "name": "openclaw",
+      "detail": "The Claw's container. Runs agents, MCP, the Telegram bridge.",
+      "location": "docker, ~/services/openclaw/docker-compose.yml",
+      "active": true,
+      "credentialIds": [
+        "cred:bws:Production:OPENAI_API_KEY",
+        "cred:container-env:openclaw:OPENAI_API_KEY",
+        "cred:env-file:services/openclaw/.env:OPENAI_API_KEY",
+        "cred:bws:Production:HOTMAIL_REFRESH_TOKEN",
+        "cred:bws:Production:TELEGRAM_BOT_TOKEN",
+        "cred:container-env:openclaw:MICROSOFT_CLIENT_SECRET"
+      ],
+      "serviceIds": [
+        "svc:openai",
+        "svc:microsoft",
+        "svc:telegram"
+      ],
+      "cronIds": [],
+      "findingIds": []
+    },
+    {
+      "id": "ctr:n8n",
+      "kind": "container",
+      "name": "n8n",
+      "detail": "Local n8n instance (workflows, webhooks).",
+      "location": "docker, ~/services/n8n/docker-compose.yml",
+      "active": true,
+      "credentialIds": [
+        "cred:bws:Production:TELEGRAM_BOT_TOKEN"
+      ],
+      "serviceIds": [
+        "svc:telegram"
+      ],
+      "cronIds": [],
+      "findingIds": []
+    },
+    {
+      "id": "sys:mission-control",
+      "kind": "systemd",
+      "name": "mission-control",
+      "detail": "Dashboard API on :3080 (this page).",
+      "location": "~/Dashboard/mission-control, node server/api.js",
+      "active": true,
+      "credentialIds": [
+        "cred:bws:Production:QBO_REFRESH_TOKEN",
+        "cred:bws:Production:QBO_CLIENT_SECRET",
+        "cred:bws:Production:JOBTREAD_GRANT_KEY"
+      ],
+      "serviceIds": [
+        "svc:qbo",
+        "svc:jobtread"
+      ],
+      "cronIds": [],
+      "findingIds": []
+    },
+    {
+      "id": "host:scripts/hm",
+      "kind": "host-script",
+      "name": "scripts/hm",
+      "detail": "Hotmail via Graph, send and read.",
+      "location": "~/services/scripts/hm",
+      "active": true,
+      "credentialIds": [
+        "cred:bws:Production:HOTMAIL_REFRESH_TOKEN",
+        "cred:oauth-file:~/.openclaw/hotmail-token.json:refresh_token",
+        "cred:bws:Production:TWILIO_AUTH_TOKEN"
+      ],
+      "serviceIds": [
+        "svc:microsoft",
+        "svc:twilio"
+      ],
+      "cronIds": [],
+      "findingIds": []
+    },
+    {
+      "id": "host:scripts/gen-image",
+      "kind": "host-script",
+      "name": "scripts/gen-image",
+      "detail": "Image generation queue worker.",
+      "location": "~/services/scripts/gen-image",
+      "active": true,
+      "credentialIds": [
+        "cred:bws:Production:OPENAI_API_KEY"
+      ],
+      "serviceIds": [
+        "svc:openai"
+      ],
+      "cronIds": [],
+      "findingIds": []
+    },
+    {
+      "id": "host:scripts/tg-listener",
+      "kind": "host-script",
+      "name": "claude-code-telegram/listener.py",
+      "detail": "Telegram long-poll listener.",
+      "location": "~/services/claude-code-telegram/listener.py",
+      "active": true,
+      "credentialIds": [
+        "cred:env-file:claude-code-telegram/.env:TELEGRAM_BOT_TOKEN"
+      ],
+      "serviceIds": [
+        "svc:telegram"
+      ],
+      "cronIds": [],
+      "findingIds": []
+    },
+    {
+      "id": "host:scripts/tg-send",
+      "kind": "host-script",
+      "name": "scripts/tg-send",
+      "detail": "Send a Telegram message from the host.",
+      "location": "~/services/scripts/tg-send",
+      "active": true,
+      "credentialIds": [
+        "cred:secrets-file:~/.secrets/telegram-bot"
+      ],
+      "serviceIds": [
+        "svc:telegram"
+      ],
+      "cronIds": [],
+      "findingIds": []
+    },
+    {
+      "id": "host:scripts/mc-sync",
+      "kind": "host-script",
+      "name": "scripts/mc-sync",
+      "detail": "Mailchimp audience export. Last touched a year ago.",
+      "location": "~/services/scripts/mc-sync",
+      "active": false,
+      "credentialIds": [
+        "cred:bws:Production:MAILCHIMP_API_KEY"
+      ],
+      "serviceIds": [
+        "svc:mailchimp"
+      ],
+      "cronIds": [
+        "cron:host:30"
+      ],
+      "findingIds": [
+        "F009"
+      ]
+    },
+    {
+      "id": "host:scripts/n8n-export",
+      "kind": "host-script",
+      "name": "scripts/n8n-export",
+      "detail": "Nightly workflow export to git.",
+      "location": "~/services/scripts/n8n-export",
+      "active": true,
+      "credentialIds": [
+        "cred:bws:Production:N8N_API_KEY"
+      ],
+      "serviceIds": [
+        "svc:n8n"
+      ],
+      "cronIds": [],
+      "findingIds": []
+    },
+    {
+      "id": "host:start.sh",
+      "kind": "host-script",
+      "name": "start.sh",
+      "detail": "Boot script. Reads BWS and injects env.",
+      "location": "~/services/start.sh",
+      "active": true,
+      "credentialIds": [
+        "cred:secrets-file:~/.secrets/bws-token"
+      ],
+      "serviceIds": [
+        "svc:bws"
+      ],
+      "cronIds": [
+        "cron:host:21",
+        "cron:systemd:openclaw-backup"
+      ],
+      "findingIds": [
+        "F012"
+      ]
+    },
+    {
+      "id": "cron:host:12",
+      "kind": "cron",
+      "name": "QBO refresh-token keep-alive",
+      "detail": "Weekly. The only thing that keeps the QBO token from lapsing.",
+      "location": "cron/crontab.rc:57",
+      "active": true,
+      "credentialIds": [
+        "cred:bws:Production:QBO_REFRESH_TOKEN",
+        "cred:bws:Production:QBO_CLIENT_SECRET"
+      ],
+      "serviceIds": [
+        "svc:qbo"
+      ],
+      "cronIds": [
+        "cron:host:12"
+      ],
+      "findingIds": [
+        "F004"
+      ]
+    },
+    {
+      "id": "cron:host:14",
+      "kind": "cron",
+      "name": "Hotmail token refresh",
+      "detail": null,
+      "location": "cron/crontab.rc:61",
+      "active": true,
+      "credentialIds": [],
+      "serviceIds": [],
+      "cronIds": [
+        "cron:host:14"
+      ],
+      "findingIds": []
+    },
+    {
+      "id": "n8n:wf:lead-intake",
+      "kind": "n8n-workflow",
+      "name": "Lead intake",
+      "detail": "Webhook, then Twilio SMS, then Mailchimp tag.",
+      "location": "n8n local, workflow 7",
+      "active": true,
+      "credentialIds": [
+        "cred:n8n-local:Twilio account:authToken"
+      ],
+      "serviceIds": [
+        "svc:twilio"
+      ],
+      "cronIds": [
+        "cron:n8nlocal:lead-intake"
+      ],
+      "findingIds": []
+    },
+    {
+      "id": "n8n:wf:mailchimp-sync",
+      "kind": "n8n-workflow",
+      "name": "Mailchimp audience sync",
+      "detail": null,
+      "location": "n8n cloud, workflow 22",
+      "active": true,
+      "credentialIds": [
+        "cred:n8n-cloud:Mailchimp rcc-main"
+      ],
+      "serviceIds": [
+        "svc:mailchimp"
+      ],
+      "cronIds": [
+        "cron:n8ncloud:mailchimp-sync"
+      ],
+      "findingIds": [
+        "F011"
+      ]
+    },
+    {
+      "id": "mcp:jobtread",
+      "kind": "mcp-server",
+      "name": "jobtread (MCP)",
+      "detail": "JobTread's own MCP, wired into openclaw.",
+      "location": "openclaw mcp config",
+      "active": true,
+      "credentialIds": [
+        "cred:bws:Production:JOBTREAD_GRANT_KEY",
+        "cred:mcp-config:openclaw/jobtread-mcp"
+      ],
+      "serviceIds": [
+        "svc:jobtread"
+      ],
+      "cronIds": [],
+      "findingIds": [
+        "F002"
+      ]
+    },
+    {
+      "id": "connector:microsoft365",
+      "kind": "connector",
+      "name": "claude.ai: Microsoft 365",
+      "detail": null,
+      "location": "claude.ai connectors",
+      "active": true,
+      "credentialIds": [
+        "cred:connector:claude.ai/Microsoft 365"
+      ],
+      "serviceIds": [
+        "svc:microsoft"
+      ],
+      "cronIds": [],
+      "findingIds": []
+    },
+    {
+      "id": "oc:agent:main",
+      "kind": "openclaw",
+      "name": "main (OpenClaw agent)",
+      "detail": "Delegated research and drafting lane.",
+      "location": "openclaw agents",
+      "active": true,
+      "credentialIds": [],
+      "serviceIds": [
+        "svc:docusign"
+      ],
+      "cronIds": [
+        "cron:openclaw:lead-sweep",
+        "cron:openclaw:morning-brief"
+      ],
+      "findingIds": []
+    },
+    {
+      "id": "cfg:claude-home",
+      "kind": "claude-config",
+      "name": "~/.claude",
+      "detail": "Primary Claude Code config dir.",
+      "location": "/home/risingcreek/.claude",
+      "active": true,
+      "credentialIds": [
+        "cred:claude-login:~/.claude"
+      ],
+      "serviceIds": [
+        "svc:anthropic"
+      ],
+      "cronIds": [
+        "cron:claude:usage-pacer"
+      ],
+      "findingIds": []
+    },
+    {
+      "id": "cfg:claude-team",
+      "kind": "claude-config",
+      "name": "~/.claude-team",
+      "detail": "Second login, Team seat.",
+      "location": "/home/risingcreek/.claude-team",
+      "active": true,
+      "credentialIds": [
+        "cred:claude-login:~/.claude-team"
+      ],
+      "serviceIds": [
+        "svc:anthropic"
+      ],
+      "cronIds": [],
+      "findingIds": []
+    }
+  ],
+  "connections": [
+    {
+      "id": "conn:ctr:openclaw->svc:openai:api",
+      "from": "ctr:openclaw",
+      "to": "svc:openai",
+      "via": "api",
+      "credentialIds": [
+        "cred:container-env:openclaw:OPENAI_API_KEY"
+      ],
+      "detail": "env OPENAI_API_KEY"
+    },
+    {
+      "id": "conn:ctr:openclaw->svc:microsoft:oauth",
+      "from": "ctr:openclaw",
+      "to": "svc:microsoft",
+      "via": "oauth",
+      "credentialIds": [
+        "cred:bws:Production:HOTMAIL_REFRESH_TOKEN",
+        "cred:container-env:openclaw:MICROSOFT_CLIENT_SECRET"
+      ],
+      "detail": "env MICROSOFT_CLIENT_ID / SECRET, token from BWS"
+    },
+    {
+      "id": "conn:ctr:openclaw->svc:telegram:api",
+      "from": "ctr:openclaw",
+      "to": "svc:telegram",
+      "via": "api",
+      "credentialIds": [
+        "cred:bws:Production:TELEGRAM_BOT_TOKEN"
+      ],
+      "detail": "env TELEGRAM_BOT_TOKEN"
+    },
+    {
+      "id": "conn:host:scripts/hm->svc:microsoft:api",
+      "from": "host:scripts/hm",
+      "to": "svc:microsoft",
+      "via": "api",
+      "credentialIds": [
+        "cred:bws:Production:HOTMAIL_REFRESH_TOKEN",
+        "cred:oauth-file:~/.openclaw/hotmail-token.json:refresh_token"
+      ],
+      "detail": "Graph /me/messages"
+    },
+    {
+      "id": "conn:host:scripts/hm->svc:twilio:api",
+      "from": "host:scripts/hm",
+      "to": "svc:twilio",
+      "via": "api",
+      "credentialIds": [
+        "cred:bws:Production:TWILIO_AUTH_TOKEN"
+      ],
+      "detail": "SMS fallback when mail fails"
+    },
+    {
+      "id": "conn:host:scripts/gen-image->svc:openai:api",
+      "from": "host:scripts/gen-image",
+      "to": "svc:openai",
+      "via": "api",
+      "credentialIds": [
+        "cred:bws:Production:OPENAI_API_KEY"
+      ],
+      "detail": "images.generate"
+    },
+    {
+      "id": "conn:cron:host:12->svc:qbo:oauth",
+      "from": "cron:host:12",
+      "to": "svc:qbo",
+      "via": "oauth",
+      "credentialIds": [
+        "cred:bws:Production:QBO_REFRESH_TOKEN",
+        "cred:bws:Production:QBO_CLIENT_SECRET"
+      ],
+      "detail": "token refresh grant"
+    },
+    {
+      "id": "conn:sys:mission-control->svc:qbo:api",
+      "from": "sys:mission-control",
+      "to": "svc:qbo",
+      "via": "api",
+      "credentialIds": [
+        "cred:bws:Production:QBO_REFRESH_TOKEN",
+        "cred:bws:Production:QBO_CLIENT_SECRET"
+      ],
+      "detail": "reads invoices"
+    },
+    {
+      "id": "conn:sys:mission-control->svc:jobtread:api",
+      "from": "sys:mission-control",
+      "to": "svc:jobtread",
+      "via": "api",
+      "credentialIds": [
+        "cred:bws:Production:JOBTREAD_GRANT_KEY"
+      ],
+      "detail": "Pave API, jobs and costs"
+    },
+    {
+      "id": "conn:mcp:jobtread->svc:jobtread:mcp",
+      "from": "mcp:jobtread",
+      "to": "svc:jobtread",
+      "via": "mcp",
+      "credentialIds": [
+        "cred:mcp-config:openclaw/jobtread-mcp",
+        "cred:bws:Production:JOBTREAD_GRANT_KEY"
+      ],
+      "detail": "api.jobtread.com/mcp"
+    },
+    {
+      "id": "conn:connector:microsoft365->svc:microsoft:connector",
+      "from": "connector:microsoft365",
+      "to": "svc:microsoft",
+      "via": "connector",
+      "credentialIds": [
+        "cred:connector:claude.ai/Microsoft 365"
+      ],
+      "detail": "claude.ai connector, read plus calendar"
+    },
+    {
+      "id": "conn:n8n:wf:lead-intake->svc:twilio:n8n-credential",
+      "from": "n8n:wf:lead-intake",
+      "to": "svc:twilio",
+      "via": "n8n-credential",
+      "credentialIds": [
+        "cred:n8n-local:Twilio account:authToken"
+      ],
+      "detail": "n8n Twilio node"
+    },
+    {
+      "id": "conn:n8n:wf:mailchimp-sync->svc:mailchimp:n8n-credential",
+      "from": "n8n:wf:mailchimp-sync",
+      "to": "svc:mailchimp",
+      "via": "n8n-credential",
+      "credentialIds": [
+        "cred:n8n-cloud:Mailchimp rcc-main"
+      ],
+      "detail": "n8n cloud Mailchimp node"
+    },
+    {
+      "id": "conn:host:scripts/mc-sync->svc:mailchimp:api",
+      "from": "host:scripts/mc-sync",
+      "to": "svc:mailchimp",
+      "via": "api",
+      "credentialIds": [
+        "cred:bws:Production:MAILCHIMP_API_KEY"
+      ],
+      "detail": "lists/members export"
+    },
+    {
+      "id": "conn:oc:agent:main->svc:docusign:browser-session",
+      "from": "oc:agent:main",
+      "to": "svc:docusign",
+      "via": "browser-session",
+      "credentialIds": [],
+      "detail": "logged-in Kasm Chrome profile; no API key used"
+    },
+    {
+      "id": "conn:ctr:n8n->svc:telegram:webhook",
+      "from": "ctr:n8n",
+      "to": "svc:telegram",
+      "via": "webhook",
+      "credentialIds": [
+        "cred:bws:Production:TELEGRAM_BOT_TOKEN"
+      ],
+      "detail": "Telegram trigger webhook"
+    },
+    {
+      "id": "conn:host:scripts/tg-listener->svc:telegram:api",
+      "from": "host:scripts/tg-listener",
+      "to": "svc:telegram",
+      "via": "api",
+      "credentialIds": [
+        "cred:env-file:claude-code-telegram/.env:TELEGRAM_BOT_TOKEN"
+      ],
+      "detail": "getUpdates long poll"
+    },
+    {
+      "id": "conn:host:scripts/tg-send->svc:telegram:cli",
+      "from": "host:scripts/tg-send",
+      "to": "svc:telegram",
+      "via": "cli",
+      "credentialIds": [
+        "cred:secrets-file:~/.secrets/telegram-bot"
+      ],
+      "detail": "curl sendMessage"
+    },
+    {
+      "id": "conn:cfg:claude-home->svc:anthropic:cli",
+      "from": "cfg:claude-home",
+      "to": "svc:anthropic",
+      "via": "cli",
+      "credentialIds": [
+        "cred:claude-login:~/.claude"
+      ],
+      "detail": "claude CLI, Max login"
+    },
+    {
+      "id": "conn:cfg:claude-team->svc:anthropic:cli",
+      "from": "cfg:claude-team",
+      "to": "svc:anthropic",
+      "via": "cli",
+      "credentialIds": [
+        "cred:claude-login:~/.claude-team"
+      ],
+      "detail": "claude CLI, Team seat"
+    },
+    {
+      "id": "conn:host:scripts/n8n-export->svc:n8n:api",
+      "from": "host:scripts/n8n-export",
+      "to": "svc:n8n",
+      "via": "api",
+      "credentialIds": [
+        "cred:bws:Production:N8N_API_KEY"
+      ],
+      "detail": "GET /workflows"
+    },
+    {
+      "id": "conn:host:start.sh->svc:bws:cli",
+      "from": "host:start.sh",
+      "to": "svc:bws",
+      "via": "cli",
+      "credentialIds": [
+        "cred:secrets-file:~/.secrets/bws-token"
+      ],
+      "detail": "bws secret list at boot"
+    }
+  ],
+  "crons": [
+    {
+      "tz": "America/Chicago",
+      "enabled": true,
+      "lastRun": "2026-09-27T09:00:12Z",
+      "lastStatus": "ok",
+      "credentialIds": [
+        "cred:bws:Production:QBO_REFRESH_TOKEN",
+        "cred:bws:Production:QBO_CLIENT_SECRET"
+      ],
+      "serviceIds": [
+        "svc:qbo"
+      ],
+      "id": "cron:host:12",
+      "where": "host crontab",
+      "name": "QBO refresh-token keep-alive",
+      "schedule": "0 4 * * 0",
+      "runs": "integration-api/scripts/qbo-keepalive.sh",
+      "location": "cron/crontab.rc:57",
+      "consumerId": "cron:host:12",
+      "findingIds": [
+        "F004"
+      ]
+    },
+    {
+      "tz": "America/Chicago",
+      "enabled": true,
+      "lastRun": "2026-10-04T20:30:01Z",
+      "lastStatus": "ok",
+      "credentialIds": [
+        "cred:bws:Production:HOTMAIL_REFRESH_TOKEN"
+      ],
+      "serviceIds": [
+        "svc:microsoft"
+      ],
+      "id": "cron:host:14",
+      "where": "host crontab",
+      "name": "Hotmail token refresh",
+      "schedule": "*/30 * * * *",
+      "runs": "scripts/hm-refresh.sh",
+      "location": "cron/crontab.rc:61",
+      "consumerId": "cron:host:14",
+      "findingIds": []
+    },
+    {
+      "tz": "America/Chicago",
+      "enabled": true,
+      "lastRun": "2026-10-04T06:15:03Z",
+      "lastStatus": "ok",
+      "credentialIds": [],
+      "serviceIds": [],
+      "id": "cron:host:21",
+      "where": "host crontab",
+      "name": "Daily health check",
+      "schedule": "15 1 * * *",
+      "runs": "daily-health-check.sh",
+      "location": "cron/crontab.rc:70",
+      "consumerId": "host:start.sh",
+      "findingIds": []
+    },
+    {
+      "tz": "America/Chicago",
+      "enabled": false,
+      "lastRun": "2025-09-01T10:00:02Z",
+      "lastStatus": "failed",
+      "credentialIds": [
+        "cred:bws:Production:MAILCHIMP_API_KEY"
+      ],
+      "serviceIds": [
+        "svc:mailchimp"
+      ],
+      "id": "cron:host:30",
+      "where": "host crontab",
+      "name": "Mailchimp export (disabled)",
+      "schedule": "0 5 * * 1",
+      "runs": "scripts/mc-sync",
+      "location": "cron/crontab.rc:88",
+      "consumerId": "host:scripts/mc-sync",
+      "findingIds": [
+        "F009"
+      ]
+    },
+    {
+      "tz": "UTC",
+      "enabled": true,
+      "lastRun": "2026-10-04T20:00:00Z",
+      "lastStatus": "ok",
+      "credentialIds": [],
+      "serviceIds": [
+        "svc:microsoft",
+        "svc:twilio"
+      ],
+      "id": "cron:openclaw:lead-sweep",
+      "where": "openclaw internal",
+      "name": "Lead sweep",
+      "schedule": "0 */2 * * *",
+      "runs": "agent main: sweep inbound leads",
+      "location": "openclaw cron list, job 3",
+      "consumerId": "oc:agent:main",
+      "findingIds": []
+    },
+    {
+      "tz": "America/Chicago",
+      "enabled": true,
+      "lastRun": "2026-10-04T11:30:00Z",
+      "lastStatus": "ok",
+      "credentialIds": [
+        "cred:bws:Production:TELEGRAM_BOT_TOKEN"
+      ],
+      "serviceIds": [
+        "svc:telegram"
+      ],
+      "id": "cron:openclaw:morning-brief",
+      "where": "openclaw internal",
+      "name": "Morning brief",
+      "schedule": "30 6 * * 1-5",
+      "runs": "agent main: brief to Telegram",
+      "location": "openclaw cron list, job 5",
+      "consumerId": "oc:agent:main",
+      "findingIds": []
+    },
+    {
+      "tz": "America/Chicago",
+      "enabled": true,
+      "lastRun": "2026-10-04T20:30:00Z",
+      "lastStatus": "ok",
+      "credentialIds": [
+        "cred:n8n-local:Twilio account:authToken"
+      ],
+      "serviceIds": [
+        "svc:twilio"
+      ],
+      "id": "cron:n8nlocal:lead-intake",
+      "where": "n8n local",
+      "name": "Lead intake poll",
+      "schedule": "*/10 * * * *",
+      "runs": "workflow 7 (Lead intake)",
+      "location": "n8n local, workflow 7",
+      "consumerId": "n8n:wf:lead-intake",
+      "findingIds": []
+    },
+    {
+      "tz": "America/New_York",
+      "enabled": true,
+      "lastRun": null,
+      "lastStatus": null,
+      "credentialIds": [
+        "cred:n8n-cloud:Mailchimp rcc-main"
+      ],
+      "serviceIds": [
+        "svc:mailchimp"
+      ],
+      "id": "cron:n8ncloud:mailchimp-sync",
+      "where": "n8n cloud",
+      "name": "Mailchimp audience sync",
+      "schedule": "0 3 * * *",
+      "runs": "workflow 22 (Mailchimp audience sync)",
+      "location": "n8n cloud, workflow 22",
+      "consumerId": "n8n:wf:mailchimp-sync",
+      "findingIds": []
+    },
+    {
+      "tz": "America/Chicago",
+      "enabled": true,
+      "lastRun": "2026-10-04T07:10:01Z",
+      "lastStatus": "ok",
+      "credentialIds": [],
+      "serviceIds": [],
+      "id": "cron:systemd:openclaw-backup",
+      "where": "systemd timer",
+      "name": "openclaw-backup.timer",
+      "schedule": "OnCalendar=*-*-* 02:10:00",
+      "runs": "backup-openclaw-volume.sh",
+      "location": "/etc/systemd/system/openclaw-backup.timer",
+      "consumerId": "host:start.sh",
+      "findingIds": []
+    },
+    {
+      "tz": "America/Chicago",
+      "enabled": true,
+      "lastRun": "2026-10-04T12:00:00Z",
+      "lastStatus": "failed",
+      "credentialIds": [],
+      "serviceIds": [
+        "svc:anthropic"
+      ],
+      "id": "cron:claude:usage-pacer",
+      "where": "claude scheduled task",
+      "name": "usage-pacer",
+      "schedule": "0 7 * * *",
+      "runs": "scheduled task: usage-pacer",
+      "location": "~/.claude/scheduled-tasks/usage-pacer",
+      "consumerId": "cfg:claude-home",
+      "findingIds": []
+    }
+  ],
+  "bitwarden": {
+    "source": "bw-review 2026-09-12 (web vault list)",
+    "asOf": "2026-09-12",
+    "identities": [
+      {
+        "email": "jake@rcc.example",
+        "role": "owner, personal vault",
+        "state": "active, 2FA on"
+      },
+      {
+        "email": "ops@rcc.example",
+        "role": "shared mailbox login",
+        "state": "active, 2FA off"
+      },
+      {
+        "email": "susie@rcc.example",
+        "role": "member, Company collection",
+        "state": "invited, not accepted"
+      }
+    ],
+    "machineAccounts": [
+      {
+        "name": "Host - Injector",
+        "projects": [
+          "Production"
+        ],
+        "token": "Access 1",
+        "usedBy": "~/.secrets/bws-token",
+        "findingIds": [
+          "F012"
+        ]
+      },
+      {
+        "name": "Host - Promoter",
+        "projects": [
+          "Production",
+          "Staging"
+        ],
+        "token": "Access 1",
+        "usedBy": "~/.secrets/bws-write-token",
+        "findingIds": []
+      },
+      {
+        "name": "Host - TOTP Reader",
+        "projects": [
+          "Promote Gate"
+        ],
+        "token": "Access 1",
+        "usedBy": "~/.secrets/promote-token",
+        "findingIds": []
+      },
+      {
+        "name": "Host - Codex Backup",
+        "projects": [
+          "Codex State"
+        ],
+        "token": "Access 2",
+        "usedBy": "~/.secrets/codex-backup-token",
+        "findingIds": []
+      }
+    ],
+    "sites": [
+      {
+        "site": "docusign.net",
+        "serviceId": "svc:docusign",
+        "usernames": [
+          "jake@rcc.example",
+          "ops@rcc.example"
+        ],
+        "items": [
+          {
+            "name": "DocuSign",
+            "username": "jake@rcc.example",
+            "owner": "My vault",
+            "collection": null,
+            "revised": "2025-08-21"
+          },
+          {
+            "name": "DocuSign",
+            "username": "jake@rcc.example",
+            "owner": "My vault",
+            "collection": null,
+            "revised": "2025-01-02"
+          },
+          {
+            "name": "DocuSign (RCC)",
+            "username": "ops@rcc.example",
+            "owner": "Rising Creek",
+            "collection": "Company",
+            "revised": "2025-11-14"
+          },
+          {
+            "name": "DocuSign (RCC)",
+            "username": "ops@rcc.example",
+            "owner": "Rising Creek",
+            "collection": "Company",
+            "revised": "2024-06-30"
+          }
+        ],
+        "copies": 4,
+        "dupCopies": 2
+      },
+      {
+        "site": "live.com",
+        "serviceId": "svc:microsoft",
+        "usernames": [
+          "jake@rcc.example"
+        ],
+        "items": [
+          {
+            "name": "Microsoft",
+            "username": "jake@rcc.example",
+            "owner": "My vault",
+            "collection": null,
+            "revised": "2026-03-01"
+          },
+          {
+            "name": "Outlook",
+            "username": "jake@rcc.example",
+            "owner": "My vault",
+            "collection": null,
+            "revised": "2026-03-01"
+          }
+        ],
+        "copies": 2,
+        "dupCopies": 0
+      },
+      {
+        "site": "intuit.com",
+        "serviceId": "svc:qbo",
+        "usernames": [
+          "books@rcc.example",
+          "jake@rcc.example"
+        ],
+        "items": [
+          {
+            "name": "Intuit",
+            "username": "books@rcc.example",
+            "owner": "Rising Creek",
+            "collection": "Company",
+            "revised": "2026-02-10"
+          },
+          {
+            "name": "Intuit (old)",
+            "username": "jake@rcc.example",
+            "owner": "My vault",
+            "collection": null,
+            "revised": "2023-09-05"
+          },
+          {
+            "name": "Intuit Developer",
+            "username": "jake@rcc.example",
+            "owner": "My vault",
+            "collection": null,
+            "revised": "2025-03-18"
+          }
+        ],
+        "copies": 3,
+        "dupCopies": 0
+      },
+      {
+        "site": "quickbooks.intuit.com",
+        "serviceId": "svc:qbo",
+        "usernames": [
+          "books@rcc.example"
+        ],
+        "items": [
+          {
+            "name": "QuickBooks Online",
+            "username": "books@rcc.example",
+            "owner": "Rising Creek",
+            "collection": "Company",
+            "revised": "2026-02-10"
+          }
+        ],
+        "copies": 1,
+        "dupCopies": 0
+      },
+      {
+        "site": "twilio.com",
+        "serviceId": "svc:twilio",
+        "usernames": [
+          "jake@rcc.example"
+        ],
+        "items": [
+          {
+            "name": "Twilio Console",
+            "username": "jake@rcc.example",
+            "owner": "My vault",
+            "collection": null,
+            "revised": "2026-05-19"
+          }
+        ],
+        "copies": 1,
+        "dupCopies": 0
+      },
+      {
+        "site": "mailchimp.com",
+        "serviceId": "svc:mailchimp",
+        "usernames": [
+          "rcc-main",
+          "marketing@rcc.example"
+        ],
+        "items": [
+          {
+            "name": "Mailchimp",
+            "username": "rcc-main",
+            "owner": "Rising Creek",
+            "collection": "Marketing",
+            "revised": "2025-08-10"
+          },
+          {
+            "name": "Mailchimp (agency)",
+            "username": "marketing@rcc.example",
+            "owner": "Rising Creek",
+            "collection": "Marketing",
+            "revised": "2024-04-22"
+          }
+        ],
+        "copies": 2,
+        "dupCopies": 0
+      },
+      {
+        "site": "jobtread.com",
+        "serviceId": "svc:jobtread",
+        "usernames": [
+          "jake@rcc.example"
+        ],
+        "items": [
+          {
+            "name": "JobTread",
+            "username": "jake@rcc.example",
+            "owner": "Rising Creek",
+            "collection": "Company",
+            "revised": "2026-09-02"
+          },
+          {
+            "name": "JobTread",
+            "username": "jake@rcc.example",
+            "owner": "Rising Creek",
+            "collection": "Company",
+            "revised": "2026-01-14"
+          }
+        ],
+        "copies": 2,
+        "dupCopies": 1
+      },
+      {
+        "site": "github.com",
+        "serviceId": null,
+        "usernames": [
+          "rcc-ops"
+        ],
+        "items": [
+          {
+            "name": "GitHub",
+            "username": "rcc-ops",
+            "owner": "My vault",
+            "collection": null,
+            "revised": "2026-04-04"
+          }
+        ],
+        "copies": 1,
+        "dupCopies": 0
+      },
+      {
+        "site": "openai.com",
+        "serviceId": "svc:openai",
+        "usernames": [
+          "ops@rcc.example"
+        ],
+        "items": [
+          {
+            "name": "OpenAI Platform",
+            "username": "ops@rcc.example",
+            "owner": "Rising Creek",
+            "collection": "Company",
+            "revised": "2026-08-12"
+          }
+        ],
+        "copies": 1,
+        "dupCopies": 0
+      }
+    ],
+    "totals": {
+      "items": 1298,
+      "sites": 600,
+      "dupGroups": 522,
+      "dupCopies": 684
+    }
+  },
+  "findings": [
+    {
+      "detail": "~/.claude-team holds a session token that expired on 2026-09-28. Anything pinned to the Team pool fails until someone logs in interactively.",
+      "id": "F001",
+      "severity": "high",
+      "category": "expired",
+      "title": "Claude Team login expired 6 days ago",
+      "action": "Run claude /login against ~/.claude-team from a desktop session.",
+      "refs": [
+        "cred:claude-login:~/.claude-team",
+        "svc:anthropic"
+      ]
+    },
+    {
+      "detail": "The live check got a 401 from the Pave endpoint. Mission Control's jobs and costs views will go stale, and the MCP connection uses the same key.",
+      "id": "F002",
+      "severity": "high",
+      "category": "failing",
+      "title": "JobTread grant key is being rejected",
+      "action": "Generate a new grant key in JobTread, put it in BWS Production, then restart the dashboard.",
+      "refs": [
+        "cred:bws:Production:JOBTREAD_GRANT_KEY",
+        "svc:jobtread",
+        "mcp:jobtread"
+      ]
+    },
+    {
+      "detail": "The BWS copy was refreshed on 9/30. The token file is from July and the live check returns invalid_grant. Two scripts read the file.",
+      "id": "F003",
+      "severity": "high",
+      "category": "drift",
+      "title": "Hotmail refresh token differs between BWS and hotmail-token.json",
+      "action": "Point both scripts at BWS and delete the token file.",
+      "refs": [
+        "cred:bws:Production:HOTMAIL_REFRESH_TOKEN",
+        "cred:oauth-file:~/.openclaw/hotmail-token.json:refresh_token",
+        "svc:microsoft"
+      ]
+    },
+    {
+      "detail": "Rolling 101-day token last refreshed 96 days ago. The keep-alive cron runs Sundays.",
+      "id": "F004",
+      "severity": "medium",
+      "category": "expiring",
+      "title": "QBO refresh token expires in 5 days",
+      "action": "Confirm the Sunday keep-alive ran. If not, run qbo-keepalive.sh by hand today.",
+      "refs": [
+        "cred:bws:Production:QBO_REFRESH_TOKEN",
+        "cron:host:12"
+      ]
+    },
+    {
+      "detail": "BWS, the openclaw container env and a plaintext .env share one value (group K01). Rotating it means touching all three.",
+      "id": "F005",
+      "severity": "medium",
+      "category": "duplicate-value",
+      "title": "The OpenAI key lives in 3 places",
+      "action": "Make BWS the only copy and inject the rest at boot.",
+      "refs": [
+        "cred:bws:Production:OPENAI_API_KEY",
+        "cred:container-env:openclaw:OPENAI_API_KEY",
+        "cred:env-file:services/openclaw/.env:OPENAI_API_KEY"
+      ]
+    },
+    {
+      "detail": "Same value as BWS (group K03), stored unencrypted in two more files.",
+      "id": "F006",
+      "severity": "medium",
+      "category": "plaintext",
+      "title": "Telegram bot token sits in a .env file and ~/.secrets",
+      "action": "Read it from BWS in listener.py and tg-send, then delete both files.",
+      "refs": [
+        "cred:env-file:claude-code-telegram/.env:TELEGRAM_BOT_TOKEN",
+        "cred:secrets-file:~/.secrets/telegram-bot"
+      ]
+    },
+    {
+      "detail": "intuit.com holds books@ and the personal address. Only one of them owns the QBO company.",
+      "id": "F007",
+      "severity": "medium",
+      "category": "bitwarden-reuse",
+      "title": "Two Intuit logins in the vault use different usernames for one company",
+      "action": "Keep the owner login, delete or relabel the other.",
+      "refs": [
+        "intuit.com",
+        "quickbooks.intuit.com",
+        "svc:qbo"
+      ]
+    },
+    {
+      "detail": "409 days old and nothing reads it. The OpenClaw agent reaches DocuSign through a browser session instead.",
+      "id": "F008",
+      "severity": "low",
+      "category": "unused",
+      "title": "DocuSign integration key has no consumer",
+      "action": "Delete the BWS secret, or build the flow it was meant for.",
+      "refs": [
+        "cred:bws:Production:DOCUSIGN_INTEGRATION_KEY",
+        "svc:docusign"
+      ]
+    },
+    {
+      "detail": "Also the only consumer, scripts/mc-sync, is disabled and its cron has been failing since last September.",
+      "id": "F009",
+      "severity": "low",
+      "category": "stale",
+      "title": "Mailchimp API key not rotated in 420 days",
+      "action": "Delete the script and cron, then retire the key.",
+      "refs": [
+        "cred:bws:Production:MAILCHIMP_API_KEY",
+        "cron:host:30",
+        "host:scripts/mc-sync"
+      ]
+    },
+    {
+      "detail": "dupCopies is 2: two items are exact copies of another by name and username.",
+      "id": "F010",
+      "severity": "low",
+      "category": "bitwarden-dup",
+      "title": "docusign.net has 4 vault items for 2 logins",
+      "action": "Merge duplicates in the web vault.",
+      "refs": [
+        "docusign.net"
+      ]
+    },
+    {
+      "detail": "The n8n cloud credential cannot be read back, so it cannot be compared with the BWS secret. It may already be the stale one.",
+      "id": "F011",
+      "severity": "low",
+      "category": "orphan",
+      "title": "Mailchimp key in n8n cloud has no BWS source",
+      "action": "Open the n8n cloud credential and re-paste the BWS value.",
+      "refs": [
+        "cred:n8n-cloud:Mailchimp rcc-main",
+        "n8n:wf:mailchimp-sync"
+      ]
+    },
+    {
+      "detail": "The boot script falls back silently when a Staging read fails.",
+      "id": "F012",
+      "severity": "medium",
+      "category": "config",
+      "title": "Host - Injector can see only Production, but start.sh also asks for Staging",
+      "action": "Decide whether start.sh should need Staging at all.",
+      "refs": [
+        "Host - Injector",
+        "cred:secrets-file:~/.secrets/bws-token",
+        "host:start.sh"
+      ]
+    }
+  ]
+}
