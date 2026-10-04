@@ -240,7 +240,7 @@ function tier6Projects() {
     for (const h of parseInflight().headings) {
       if (h.status === "done" || !WAIT_RE.test(h.title) || /JAKE'S PLATE/i.test(h.title)) continue;
       const at = h.date ? Date.parse(h.date) : 0;
-      rows.push({ tier: 6, key: `wait:${h.id}`, title: h.title.replace(/^[^\w]+/, "").replace(/\s*\((\d{4}-\d{2}-\d{2})?,?\s*(waiting|waits|awaiting)[^)]*\)\s*$/i, "").slice(0, 110), age: at ? Date.now() - at : 0, link: "/projects" });
+      rows.push({ tier: 6, key: `wait:${h.id}`, title: h.title.replace(/^[^\w]+/, "").replace(/\s*\((\d{4}-\d{2}-\d{2})?,?\s*(waiting|waits|awaiting)[^)]*\)\s*$/i, "").replace(/^(.{0,110})(\s.*)?$/, (_, a, rest) => rest ? `${a}…` : a), age: at ? Date.now() - at : 0, link: "/projects" });
     }
   } catch { /* parse failure: fine */ }
   return { rows };
@@ -250,18 +250,18 @@ function tier6Projects() {
 // verified the file is frequently absent at morning check-in; queue never depends on it).
 // 2-3 complete sentences of plain text, or null so the section is omitted.
 export function summarize(md) {
-  const text = [];
+  const sentences = [];
   for (let l of md.split("\n")) {
     l = l.trim();
     if (!l || /^#/.test(l) || /^-{3,}$/.test(l) || /^[-*+]\s|^\d+[.)]\s/.test(l)) continue; // headers, rules, list items
     l = l.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`]+/g, "").trim();
     if (/^(theme|wildcard)\s*:/i.test(l)) continue;
-    text.push(l);
+    // per line, and only terminated sentences: a lead-in ending in ":" is introducing a list we skip
+    for (const m of l.match(/[^.!?]+[.!?]+(?=\s|$)/g) || []) sentences.push(m.trim());
   }
-  const sentences = text.join(" ").match(/[^.!?]+[.!?]+(?=\s|$)/g) || [];
   const out = []; let len = 0;
-  for (const s of sentences.map(x => x.trim())) {
-    if (s.length < 25) continue; // "M." style fragments
+  for (const s of sentences) {
+    if (s.length < 25 || /:\s/.test(s)) continue; // fragments and half-sentences that run into a list
     if (len + s.length > 480 && out.length) break;
     out.push(s); len += s.length;
     if (out.length === 3) break;
