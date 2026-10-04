@@ -17,11 +17,6 @@ const PAYAPP_ST = {
   finalized: { label: "finalized", color: "#4ade80" },
 };
 
-function money(n) {
-  if (typeof n !== "number" || Number.isNaN(n)) return null;
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-}
-
 export default function JobDetail() {
   const { id } = useParams();
   const [data, setData] = useState(null);
@@ -51,27 +46,32 @@ export default function JobDetail() {
   if (err) return <Section title="Job"><div style={{ color: C.dim }}>{err}</div></Section>;
   if (!data) return <Section title="Job"><div style={{ color: C.dim }}>Loading…</div></Section>;
 
-  const { jt, rfi, payApps } = data;
+  const { jt, rfi, payApps, customer } = data;
+  // The URL can carry Jake's job number; pay-app links need the real JT id.
+  const jtId = data.jtId || jt?.id || id;
   const name = jt?.name || `Job ${id}`;
   const address = jt?.location?.address || jt?.address || null;
   const costItems = jt?.costItems?.nodes || jt?.costItems || null;
   const itemCount = Array.isArray(costItems) ? costItems.length : null;
-  const total = Array.isArray(costItems)
-    ? costItems.reduce((sum, it) => sum + (Number(it.totalCost ?? it.cost ?? it.total) || 0), 0)
-    : null;
+  // A failed lookup comes back as {ok:false,error}, not null.
+  const found = !!(jt && jt.id);
+  const status = jt?.closedOn ? `Closed ${new Date(jt.closedOn).toLocaleDateString()}` : "Open";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div>
         <Link to="/jobs" style={{ color: BRAND.link, fontSize: 13, textDecoration: "none" }}>← all jobs</Link>
         <h2 style={{ margin: "6px 0 2px", fontSize: 18, color: C.bright }}>{name}</h2>
+        <div style={{ color: C.dim, fontSize: 12 }}>
+          {found ? `${jt.number ? `#${jt.number}` : ""}${customer ? ` · ${customer}` : ""} · ${status}` : "Job not found"}
+        </div>
         {address && <div style={{ color: C.dim, fontSize: 12 }}>{address}</div>}
       </div>
 
       <Section title="RFIs">
         {rfi ? (
-          <Link to={`/rfis/${rfi.jobId}`} style={{ display: "flex", alignItems: "center", gap: 12, textDecoration: "none", color: C.text }}>
-            <div style={{ flex: 1 }}>
+          <Link to={`/rfis/${rfi.jobId}`} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px 12px", textDecoration: "none", color: C.text }}>
+            <div style={{ flex: "1 1 200px" }}>
               <div style={{ fontWeight: 600, fontSize: 14 }}>{rfi.title}</div>
               <div style={{ color: C.dim, fontSize: 12 }}>revised {rfi.revised || "?"}</div>
             </div>
@@ -84,7 +84,7 @@ export default function JobDetail() {
             <span style={{ color: C.dim, fontSize: 12 }}>{rfi.counts?.closed || 0} closed</span>
           </Link>
         ) : (
-          <div style={{ color: C.dim }}>No RFI log yet</div>
+          <div style={{ color: C.dim }}>No RFI log for this job yet.</div>
         )}
       </Section>
 
@@ -93,7 +93,7 @@ export default function JobDetail() {
           payApps.map((p) => {
             const st = PAYAPP_ST[p.status] || { label: p.status || "?", color: C.dim };
             return (
-              <Link key={p.number} to="/money/pay-apps" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${C.bdr}`, textDecoration: "none", color: C.text }}>
+              <Link key={p.number} to={`/money/pay-apps/${jtId}/${p.number}`} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${C.border}`, textDecoration: "none", color: C.text }}>
                 <span style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>Pay app #{p.number}</span>
                 <span style={{ color: C.dim, fontSize: 12 }}>{p.periodTo || ""}</span>
                 <span style={{ color: st.color, fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>{st.label}</span>
@@ -101,22 +101,23 @@ export default function JobDetail() {
             );
           })
         ) : (
-          <div style={{ color: C.dim }}>None yet</div>
+          <div style={{ color: C.dim }}>None yet.{found && <> <Link to={`/money/pay-apps/${jtId}`} style={{ color: BRAND.link }}>Start one</Link></>}</div>
         )}
       </Section>
 
       <Section title="JobTread">
-        {!ok && <div style={{ color: C.dim, marginBottom: 10 }}>JobTread unreachable</div>}
-        {jt ? (
+        {!ok && found && <div style={{ color: C.dim, marginBottom: 10 }}>JobTread unreachable</div>}
+        {found ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13, color: C.text }}>
             <div>Name: {jt.name || "—"}</div>
+            {customer && <div>Customer: {customer}</div>}
             {address && <div>Address: {address}</div>}
             {itemCount != null && <div>Cost items: {itemCount}</div>}
-            {total != null && <div>Cost total: {money(total)}</div>}
-            <div style={{ color: C.dim, fontSize: 12, marginTop: 8 }}>JobTread is the system of record — figures here are a read-only snapshot.</div>
+            <a href={`https://app.jobtread.com/jobs/${jtId}`} target="_blank" rel="noreferrer" style={{ color: BRAND.link }}>Open in JobTread</a>
+            <div style={{ color: C.dim, fontSize: 12, marginTop: 8 }}>JobTread is the system of record. This page is a read-only snapshot.</div>
           </div>
         ) : (
-          ok && <div style={{ color: C.dim }}>No data</div>
+          <div style={{ color: C.dim }}>Job not found in JobTread.</div>
         )}
       </Section>
     </div>

@@ -22,7 +22,7 @@ import { listSkills, getSkill, saveSkill, createSkill, copySkill, deleteSkill, f
 import chokidar from "chokidar";
 import { homedir } from "os";
 import { execDocker, execDockerJSON } from "./lib/docker.js";
-import { getJobs, getJobDetail } from "./lib/jobtread.js";
+import { getJobs, getJobDetail, resolveJobId } from "./lib/jobtread.js";
 import {
   getSettings, saveSettings,
   loadJobBilling, saveJobBilling,
@@ -420,21 +420,28 @@ app.get("/api/systems/outcomes", async (_req, res) => {
 // Job detail (DESIGN.md §10 phase 2): JT overview + RFI counts + pay-app state
 app.get("/api/jobs/:id/detail", async (req, res) => {
   try {
-    const [jt, rfis] = await Promise.all([getJobDetail(req.params.id), Promise.resolve(listRfiJobs())]);
+    // The URL may carry Jake's job number (/jobs/119) or a JT id; JT only takes the id.
+    const jtId = await resolveJobId(req.params.id);
+    const [jt, rfis] = await Promise.all([getJobDetail(jtId), Promise.resolve(listRfiJobs())]);
     let payApps = null;
     try {
-      const b = loadJobBilling(req.params.id);
+      const b = loadJobBilling(jtId);
       payApps = (b?.applications || []).map(a => ({ number: a.number, status: a.finalizedAt ? "finalized" : "draft", periodTo: a.periodTo }));
     } catch { /* no billing store for job */ }
     // ID bridge: JT uses long string ids, RFI dirs use Jake's internal job numbers.
-    // Match directly first, else extract the number from the JT job name ("... #119 ...").
-    let rfi = rfis.find(r => r.jobId === String(req.params.id)) || null;
+    // Match by the job's own number first, then the raw URL value, then a number in the name.
+    const jtJob = jt?.data?.job || jt?.data || jt?.job || jt;
+    let rfi = null;
+    if (jtJob?.number) rfi = rfis.find(r => r.jobId === String(jtJob.number)) || null;
+    if (!rfi) rfi = rfis.find(r => r.jobId === String(req.params.id)) || null;
     if (!rfi) {
-      const jtName = jt?.data?.job?.name || jt?.job?.name || "";
-      const m = /\b(\d{2,3})\b/.exec(jtName);
+      const m = /\b(\d{2,3})\b/.exec(jtJob?.name || "");
       if (m) rfi = rfis.find(r => r.jobId === m[1]) || null;
     }
-    res.json({ ok: jt.ok !== false, data: { jt: jt.data || jt, rfi, payApps } });
+    // Customer comes from the cached jobs list (cheap, and the detail's doc lookup can miss).
+    const listed = (await getJobs()).data;
+    const row = Array.isArray(listed) ? listed.find(j => j.id === jtId) : null;
+    res.json({ ok: jt.ok !== false, data: { jt: jt.data || jt, jtId, customer: row?.customer || jtJob?.customer?.name || null, rfi, payApps } });
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });
 

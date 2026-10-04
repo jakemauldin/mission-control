@@ -240,9 +240,9 @@ export default function BillsSheetView() {
           {(moreLook ? looks : looks.slice(0, 5)).map(({ r, l, also }) => (
             <div key={r.key} style={{ display: narrow ? "grid" : "flex", gridTemplateColumns: "auto 1fr auto", alignItems: "center", gap: narrow ? "4px 10px" : 10, padding: "7px 0", borderTop: `1px solid ${C.border}` }}>
               <span style={dot(l.tone)} />
-              <button onClick={() => setOpenKey(r.key)} style={{ background: "none", border: "none", padding: 0, color: C.bright, fontWeight: 600, fontSize: 13, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }} title={also.length ? `Same email matches ${also.join(", ")}` : ""}>{r.name}{also.length ? ` +${also.length}` : ""}</button>
-              <span style={{ fontSize: 12.5, color: C.text, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: narrow ? "normal" : "nowrap",
-                gridColumn: narrow ? "2 / 4" : undefined, gridRow: narrow ? 2 : undefined }}>{l.text}</span>
+              <button onClick={() => setOpenKey(r.key)} style={{ background: "none", border: "none", padding: 0, color: C.bright, fontWeight: 600, fontSize: 13, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", textAlign: "left", justifySelf: "start", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }} title={also.length ? `Same email matches ${also.join(", ")}` : ""}>{r.name}{also.length ? ` +${also.length}` : ""}</button>
+              <span style={{ fontSize: narrow ? 12 : 12.5, color: narrow ? C.dim : C.text, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: narrow ? undefined : "nowrap",
+                ...(narrow ? { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", gridColumn: "2 / 4", gridRow: 2, lineHeight: 1.4 } : {}) }} title={l.text}>{l.text}</span>
               {l.act === "email" && <button style={btnS(false)} onClick={() => act(r, "email")}>Read it</button>}
               {l.act === "paid" && r.pay_ref && <button style={btnS(false)} onClick={() => act(r, "paid")}>Mark paid</button>}
               {l.act === "fix" && <button style={btnS(false)} onClick={() => act(r, "fix")}>Use {money(r.bank.last_amount)}</button>}
