@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Ring log (server/lib/ring.js)
+server/data/ring-log.jsonl
+
 # Secrets
 server/.env
 

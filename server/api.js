@@ -34,6 +34,7 @@ import {
   createPdfBuffer,
 } from "./lib/billing.js";
 import dotenv from "dotenv";
+import { createRing, loopbackOnly } from "./lib/ring.js";
 import { getProjects, createProject, updateProject, addTodo, updateTodo, deleteTodo, slugify } from "./lib/projects.js";
 
 dotenv.config({ path: join(import.meta.dirname, ".env") });
@@ -64,7 +65,33 @@ app.post("/api/logout", (_req, res) => {
 });
 // Status word only — no file contents, no versions. Safe unauthenticated.
 app.get("/api/health/probe", (_req, res) => res.json({ ok: true }));
+// ── Ring: agents on this host ring Jake's open sign (server/lib/ring.js) ──
+// Host-local only and mounted before the cookie middleware: callers are scripts and Claude
+// sessions with no cookie. loopbackOnly checks the socket address AND refuses proxy headers, so
+// tailscale serve / nginx (which arrive from 127.0.0.1 too) and tailnet peers get 403.
+const ring = createRing();
+app.post("/internal/ring", loopbackOnly, (req, res) => {
+  const r = ring.create(req.body || {});
+  res.status(r.status).json(r.body);
+});
+app.get("/internal/ring/:id", loopbackOnly, (req, res) => {
+  const r = ring.get(req.params.id);
+  if (!r) return res.status(404).json({ ok: false, error: "unknown ring id" });
+  res.json(r);
+});
+
 app.use("/api", requireAuth);
+
+// Sign status for the header pill. voice-dump health is cached 30 s so polling stays cheap.
+let vdHealth = { at: 0, up: false };
+app.get("/api/ring/status", async (_req, res) => {
+  if (Date.now() - vdHealth.at > 30_000) {
+    const base = (process.env.VOICE_DUMP_URL || "http://127.0.0.1:3240").replace(/\/$/, "");
+    const up = await fetch(`${base}/health`, { signal: AbortSignal.timeout(2000) }).then((r) => r.ok).catch(() => false);
+    vdHealth = { at: Date.now(), up };
+  }
+  res.json({ ...ring.status(), voiceDumpUp: vdHealth.up });
+});
 
 // ── Projects: per-project running to-do w/ progress dates (2026-08-16) ──
 // Store: ~/services/projects/projects.json (+ IN-FLIGHT.md headings/plate, read-only).
@@ -609,13 +636,16 @@ app.get("/api/foreclosures", proxyLand("/foreclosures")); // distress pipeline (
 const wss = new WebSocketServer({
   server,
   path: "/ws",
+  maxPayload: 4096, // clients only send small presence messages (ring.js)
   // Same session cookie as /api — an unauthenticated socket gets no push data.
   verifyClient: ({ req }) => validSession(req.headers.cookie),
 });
 const clients = new Set();
 
+ring.startHeartbeat();
 wss.on("connection", (ws) => {
   clients.add(ws);
+  ring.attach(ws); // presence + ring messages, ping/pong liveness
   ws.send(JSON.stringify({ type: "connected", time: new Date().toISOString() }));
 
   ws.on("close", () => clients.delete(ws));
