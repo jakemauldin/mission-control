@@ -7,8 +7,9 @@
 }
 
 body {
-  background: #030712;
+  background: #0E0C06;
   color: #CBD5E1;
+  overflow-x: hidden;
   font-family: 'IBM Plex Sans', -apple-system, sans-serif;
 }
 
@@ -55,3 +56,9 @@ body {
 /* Rising Creek brand typography (rc-brand-config.json): Poppins headings/nav, Open Sans body */
 body { font-family: 'Open Sans', Arial, sans-serif; }
 h1,h2,h3,h4,h5,h6, nav, button { font-family: 'Poppins', Helvetica, Arial, sans-serif; }
+
+/* App shell spacing. Phone: tighter gutters, and room under the fixed bottom tab bar. */
+.rc-shell { padding: 12px 14px calc(76px + env(safe-area-inset-bottom)); }
+@media (min-width: 768px) { .rc-shell { padding: 16px 18px; } }
+.rc-tabbar { display: grid; }
+@media (min-width: 768px) { .rc-tabbar { display: none; } }
