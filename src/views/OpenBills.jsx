@@ -23,6 +23,7 @@ export default function OpenBillsView({ jobs }) {
   const [error, setError] = useState(null);
   const [showManual, setShowManual] = useState(false);
   const [expanded, setExpanded] = useState(null); // pending id under edit
+  const [showOlder, setShowOlder] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -56,14 +57,28 @@ export default function OpenBillsView({ jobs }) {
     return () => clearInterval(t);
   }, [refresh]);
 
+  // Lien-release envelopes with no amount that are over 30 days old are history, not a
+  // work queue (71 of them buried the real bills). Keep them one click away.
+  const { current, older, olderSince } = useMemo(() => {
+    const cutoff = Date.now() - 30 * 86400000;
+    const isOld = (p) => !p.amount && p.detectedAt && Date.parse(p.detectedAt) < cutoff;
+    const old = pending.filter(isOld);
+    const first = old.map((p) => Date.parse(p.detectedAt)).filter(Number.isFinite).sort((a, b) => a - b)[0];
+    return {
+      current: pending.filter((p) => !isOld(p)),
+      older: old,
+      olderSince: first ? new Date(first).toLocaleDateString("en-US", { month: "long", year: "numeric" }) : "earlier",
+    };
+  }, [pending]);
+
   const counts = useMemo(() => ({
-    pending: pending.length,
-    needsAmount: pending.filter((p) => !p.amount).length,
+    pending: current.length,
+    needsAmount: current.filter((p) => !p.amount).length,
     open: openBills.length,
     dueSoon: openBills.filter((b) => b.daysUntilDue != null && b.daysUntilDue <= 7).length,
     overdue: openBills.filter((b) => b.daysUntilDue != null && b.daysUntilDue < 0).length,
     openTotal: openBills.reduce((s, b) => s + (b.balance || 0), 0),
-  }), [pending, openBills]);
+  }), [current, openBills]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -113,13 +128,22 @@ export default function OpenBillsView({ jobs }) {
         />
       )}
 
+      {/* Open JT bills */}
+      <Card title={`Open Bills (${openBills.length})`} subtitle="JT vendor bills with balance > 0. Soonest-due first.">
+        {openBills.length === 0 ? (
+          <Empty>No open bills.</Empty>
+        ) : (
+          <OpenBillsTable bills={openBills} />
+        )}
+      </Card>
+
       {/* Pending confirm queue */}
-      <Card title={`Awaiting Confirm (${pending.length})`} subtitle="DocuSign envelopes detected by the poller + manual submissions. Click to confirm or reject.">
-        {pending.length === 0 ? (
-          <Empty>No pending bills.</Empty>
+      <Card title={`Awaiting Confirm (${current.length})`} subtitle="DocuSign envelopes detected by the poller + manual submissions. Click to confirm or reject.">
+        {current.length === 0 ? (
+          <Empty>Nothing waiting on you.</Empty>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {pending.map((p) => (
+            {current.map((p) => (
               <PendingRow
                 key={p.id}
                 entry={p}
@@ -132,14 +156,27 @@ export default function OpenBillsView({ jobs }) {
             ))}
           </div>
         )}
-      </Card>
-
-      {/* Open JT bills */}
-      <Card title={`Open Bills (${openBills.length})`} subtitle="JT vendor bills with balance > 0. Soonest-due first.">
-        {openBills.length === 0 ? (
-          <Empty>No open bills.</Empty>
-        ) : (
-          <OpenBillsTable bills={openBills} />
+        {older.length > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <button onClick={() => setShowOlder((v) => !v)} aria-expanded={showOlder} style={btnS(false)}>
+              {showOlder ? "Hide" : "Show"} older lien releases ({older.length}, since {olderSince})
+            </button>
+            {showOlder && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+                {older.map((p) => (
+                  <PendingRow
+                    key={p.id}
+                    entry={p}
+                    jobs={jobs}
+                    expanded={expanded === p.id}
+                    onExpand={() => setExpanded(expanded === p.id ? null : p.id)}
+                    onConfirmed={refresh}
+                    onRejected={refresh}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </Card>
 
@@ -206,6 +243,8 @@ function PendingRow({ entry, jobs, expanded, onExpand, onConfirmed, onRejected }
 
   const confirm = async () => {
     if (!amount || Number(amount) <= 0) { setErr("Amount required"); return; }
+    // This creates a real vendor bill in JobTread, so say exactly what before it goes.
+    if (!window.confirm(`Create a JobTread bill?\n\nVendor: ${vendorName || "(no vendor)"}\nAmount: ${fmt(Number(amount))}\nJob: ${jobId ? jobLabel : jobNumber ? `Job #${jobNumber}` : jobLabel}\n\nThis writes to JobTread.`)) return;
     setBusy(true);
     setErr(null);
     const body = {
@@ -226,7 +265,10 @@ function PendingRow({ entry, jobs, expanded, onExpand, onConfirmed, onRejected }
   };
 
   const reject = async () => {
-    const reason = window.prompt("Reason for rejection?", "Not needed");
+    const reason = window.prompt(
+      `Reject this bill?\n\nVendor: ${entry.vendorName || vendorName || "(no vendor)"}\nAmount: ${entry.amount ? fmt(entry.amount) : "none"}\nJob: ${jobLabel}\n\nReason (OK rejects it, Cancel keeps it):`,
+      "Not needed"
+    );
     if (reason == null) return;
     setBusy(true);
     const r = await api(`/api/ap/pending-bills/${entry.id}/reject`, { method: "POST", body: { reason } });
@@ -269,7 +311,7 @@ function PendingRow({ entry, jobs, expanded, onExpand, onConfirmed, onRejected }
           <Field label="Job">
             <select value={jobId} onChange={(e) => setJobId(e.target.value)} style={inputS}>
               <option value="">(use job number)</option>
-              {(jobs || []).filter((j) => !j.closedOn).map((j) => (
+              {(jobs || []).filter((j) => !j.closedOn).sort((a, b) => (parseInt(b.number, 10) || 0) - (parseInt(a.number, 10) || 0)).map((j) => (
                 <option key={j.id} value={j.id}>{j.name} (#{j.number})</option>
               ))}
             </select>
@@ -389,6 +431,8 @@ function ManualBillForm({ jobs, onClose, onCreated }) {
     if (!vendorName) { setErr("Vendor required"); return; }
     if (!amount || Number(amount) <= 0) { setErr("Amount required"); return; }
     if (!jobId) { setErr("Job required"); return; }
+    const j = (jobs || []).find((x) => x.id === jobId);
+    if (!window.confirm(`Create a JobTread bill?\n\nVendor: ${vendorName}\nAmount: ${fmt(Number(amount))}\nJob: ${j ? `${j.name} (#${j.number})` : jobId}\n\nThis writes to JobTread.`)) return;
     setBusy(true);
     setErr(null);
     const body = {
@@ -432,7 +476,7 @@ function ManualBillForm({ jobs, onClose, onCreated }) {
           <Field label="Job">
             <select value={jobId} onChange={(e) => setJobId(e.target.value)} style={inputS}>
               <option value="">Select…</option>
-              {(jobs || []).filter((j) => !j.closedOn).map((j) => (
+              {(jobs || []).filter((j) => !j.closedOn).sort((a, b) => (parseInt(b.number, 10) || 0) - (parseInt(a.number, 10) || 0)).map((j) => (
                 <option key={j.id} value={j.id}>{j.name} (#{j.number})</option>
               ))}
             </select>
