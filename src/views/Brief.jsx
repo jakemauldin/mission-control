@@ -17,6 +17,18 @@ function ageStr(ms) {
 const endOfToday = () => { const d = new Date(); d.setHours(23, 59, 59, 0); return d; };
 const SNOOZES = [["Today", () => endOfToday()], ["3 days", () => new Date(Date.now() + 3 * 86400000)], ["1 week", () => new Date(Date.now() + 7 * 86400000)]];
 
+// Top 6, with at most 3 voice-dump needs so an old backlog cannot push blocking RFIs and late bills off the screen.
+function topRows(all) {
+  const out = []; let needs = 0;
+  for (const r of all) {
+    if (out.length === 6) break;
+    if (r.kind === "need" && needs >= 3) continue;
+    if (r.kind === "need") needs++;
+    out.push(r);
+  }
+  return out;
+}
+
 const btn = { background: "none", border: `1px solid ${C.border}`, color: C.dim, borderRadius: 8, fontSize: 13, padding: "0 12px", minHeight: 36, cursor: "pointer" };
 
 export default function Brief({ showAll }) {
@@ -26,11 +38,15 @@ export default function Brief({ showAll }) {
   const [menu, setMenu] = useState(null);              // key of the row whose snooze menu is open
   const [snoozed, setSnoozed] = useState(null);        // list when the "N snoozed" panel is open
   const [note, setNote] = useState(null);
+  const [confirm, setConfirm] = useState(null);        // "key:action" waiting for a second tap
+  const [open, setOpen] = useState(() => new Set());   // rows whose detail is expanded
   const load = useCallback(async () => {
     try {
       const r = await fetch("/api/brief");
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      setData((await r.json()).data); setErr(null); setGone(new Set());
+      const j = await r.json();
+      if (!j.ok || !j.data) throw new Error(j.error || "no data");
+      setData(j.data); setErr(null); setGone(new Set());
     } catch (e) { setErr(e.message); }
   }, []);
   useEffect(() => { load(); const t = setInterval(load, 60000); return () => clearInterval(t); }, [load]);
@@ -48,12 +64,20 @@ export default function Brief({ showAll }) {
     await load(); if (snoozed) loadSnoozed();
   };
   const unsnooze = async (key) => { await post("/api/brief/unsnooze", { key }); await load(); loadSnoozed(); };
+  // Allow sends the agent off to act on the item, so it takes two taps. Drop uses the same pattern.
+  const ask = (row, action) => {
+    const id = `${row.key}:${action}`;
+    if (confirm === id) { setConfirm(null); decide(row, action); return; }
+    setConfirm(id); setTimeout(() => setConfirm((c) => (c === id ? null : c)), 4000);
+  };
+  const toggle = (key) => setOpen((o) => { const n = new Set(o); n.has(key) ? n.delete(key) : n.add(key); return n; });
   const decide = async (row, action) => {
     hide(row.key); setNote(null);
     try {
       const r = await post(`/api/brief/needs/${encodeURIComponent(row.needId)}/decide`, { action });
       const j = await r.json();
       if (!j.ok) setNote(`Could not ${action} that item: ${j.error}`);
+      else if (j.data?.sent) setNote(j.data.note);
     } catch (e) { setNote(`Could not ${action} that item: ${e.message}`); }
     load();
   };
@@ -61,7 +85,7 @@ export default function Brief({ showAll }) {
   if (err) return <Section title="Brief"><div style={{ color: C.dim }}>Brief unavailable: {err}</div></Section>;
   if (!data) return <Section title="Brief"><div style={{ color: C.dim }}>Loading…</div></Section>;
   const all = data.all.filter((r) => !gone.has(r.key));
-  const rows = showAll ? all : all.slice(0, 6);
+  const rows = showAll ? all : topRows(all);
   const more = Math.max(0, all.length - rows.length);
   const cn = data.counts || {};
   const sys = data.systems || {};
@@ -96,25 +120,33 @@ export default function Brief({ showAll }) {
       <Section title={showAll ? `Everything (${all.length})` : "Needs you"}>
         {note && <div style={{ color: STATUS.bad, fontSize: 13, paddingBottom: 8 }}>{note}</div>}
         {rows.length === 0 && <div style={{ color: C.dim, padding: "12px 0" }}>Nothing needs you. Genuinely.</div>}
-        {rows.map((r) => (
-          <div key={r.key} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: TIER_COLOR[r.tier], width: 68, flexShrink: 0, letterSpacing: 0.5 }}>{TIER_LABEL[r.tier]}</span>
-              <span style={{ flex: 1, minWidth: 0, fontSize: 14, overflowWrap: "anywhere" }}>{r.title}{r.snoozedTimes ? <em style={{ color: C.dim, fontSize: 11 }}> · snoozed {r.snoozedTimes}x</em> : null}</span>
+        {rows.map((r) => {
+          const redirect = r.needKind === "redirect"; // a question for you to answer, so Allow / Drop means nothing
+          const isOpen = open.has(r.key);
+          return (
+            <div key={r.key} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 11 }}>
+                <span style={{ fontWeight: 700, color: TIER_COLOR[r.tier], letterSpacing: 0.5 }}>{TIER_LABEL[r.tier]}</span>
+                {ageStr(r.age) && <span style={{ color: C.dim }}>{ageStr(r.age)} old</span>}
+                {r.snoozedTimes ? <em style={{ color: C.dim }}>snoozed {r.snoozedTimes}x</em> : null}
+              </div>
+              <div style={{ fontSize: 14, overflowWrap: "anywhere", marginTop: 3 }}>{r.title}</div>
+              {r.detail && (
+                <div onClick={() => toggle(r.key)} style={{ color: C.dim, fontSize: 12, marginTop: 4, cursor: "pointer", overflowWrap: "anywhere", ...(isOpen ? {} : { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }) }}>{r.detail}</div>
+              )}
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 6 }}>
+                {r.needId && !redirect && (<>
+                  <button onClick={() => ask(r, "allow")} style={{ ...btn, color: STATUS.good, borderColor: STATUS.good }}>{confirm === `${r.key}:allow` ? "Confirm allow" : "Allow"}</button>
+                  <button onClick={() => ask(r, "drop")} style={{ ...btn, color: STATUS.bad, borderColor: STATUS.bad }}>{confirm === `${r.key}:drop` ? "Confirm drop" : "Drop"}</button>
+                </>)}
+                {menu === r.key
+                  ? SNOOZES.map(([label, at]) => <button key={label} onClick={() => snooze(r.key, at())} style={btn}>{label}</button>)
+                  : <button onClick={() => setMenu(r.key)} style={btn}>Snooze</button>}
+                {r.link && <Link to={r.link} style={{ color: BRAND.link, fontSize: 13, textDecoration: "none", fontWeight: 600, minHeight: 36, display: "inline-flex", alignItems: "center" }}>Open →</Link>}
+              </div>
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 6, paddingLeft: 78 }}>
-              {ageStr(r.age) && <span style={{ color: C.dim, fontSize: 12, marginRight: 4 }}>{ageStr(r.age)} old</span>}
-              {r.needId && (<>
-                <button onClick={() => decide(r, "allow")} style={{ ...btn, color: STATUS.good, borderColor: STATUS.good }}>Allow</button>
-                <button onClick={() => decide(r, "drop")} style={{ ...btn, color: STATUS.bad, borderColor: STATUS.bad }}>Drop</button>
-              </>)}
-              {menu === r.key
-                ? SNOOZES.map(([label, at]) => <button key={label} onClick={() => snooze(r.key, at())} style={btn}>{label}</button>)
-                : <button onClick={() => setMenu(r.key)} style={btn}>Snooze</button>}
-              <Link to={r.link} style={{ color: BRAND.link, fontSize: 13, textDecoration: "none", fontWeight: 600, minHeight: 36, display: "inline-flex", alignItems: "center" }}>Open →</Link>
-            </div>
-          </div>
-        ))}
+          );
+        })}
         {!showAll && more > 0 && (
           <Link to="/?all=1" style={{ display: "block", paddingTop: 10, color: C.dim, fontSize: 13, textDecoration: "none" }}>+{more} more</Link>
         )}

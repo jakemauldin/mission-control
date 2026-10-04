@@ -81,11 +81,21 @@ const ASKJAKE_PENDING = () => join(process.env.ASKJAKE_DECISIONS_DIR || join(HOM
 export async function decideNeed(id, action) {
   if (!/^[\w-]{1,40}$/.test(String(id))) throw new Error("bad id");
   if (action !== "allow" && action !== "drop") throw new Error("action must be allow or drop");
-  const r = await getJson(`${VOICE_DUMP()}/live/ceo/decide`, 8000, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action }),
-  });
-  invalidateBrief();
-  return r;
+  // voice-dump records the decision first, then awaits the agent run on allow, which can outlast
+  // our timeout. An abort therefore means "sent", not "failed"; a retry would only hit "already decided".
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 8000);
+  try {
+    const r = await fetch(`${VOICE_DUMP()}/live/ceo/decide`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action }), signal: ctl.signal,
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || j.message || `HTTP ${r.status}`);
+    return j;
+  } catch (e) {
+    if (e.name === "AbortError") return { sent: true, note: "Sent. It is still running; the list updates on the next load." };
+    throw e;
+  } finally { clearTimeout(t); invalidateBrief(); }
 }
 
 
@@ -111,8 +121,8 @@ async function tier1Systems() {
 async function needsJake() {
   const j = await getJson(`${VOICE_DUMP()}/live/ceo/needs`);
   const rows = (j.open || []).map(n => ({
-    tier: 2, key: `need:${n.id}`, title: n.title || n.id, detail: n.detail ? String(n.detail).slice(0, 240) : undefined,
-    age: n.ts ? Math.max(0, Date.now() - Date.parse(n.ts)) : 0, link: "/", needId: n.id, kind: "need",
+    tier: 2, key: `need:${n.id}`, title: n.title || n.id, detail: n.detail ? String(n.detail).slice(0, 600) : undefined,
+    age: n.ts ? Math.max(0, Date.now() - Date.parse(n.ts)) : 0, needId: n.id, kind: "need", needKind: n.kind || null, // no link: "/" is the page you are on
   }));
   return { rows };
 }
@@ -125,7 +135,7 @@ function askJakePending() {
   const exp = Number(p.expires);
   if (exp && (exp < 1e12 ? exp * 1000 : exp) < Date.now()) return { rows: [] }; // stale file from a dead run
   const epoch = Number(p.epoch) || 0;
-  return { rows: [{ tier: 2, key: `ask:${p.msg_id || epoch}`, title: `Question waiting on you: ${String(p.question || "").slice(0, 200)}`, age: epoch ? Date.now() - epoch * 1000 : 0, link: "/", kind: "ask" }] };
+  return { rows: [{ tier: 2, key: `ask:${p.msg_id || epoch}`, title: `Question waiting on you: ${String(p.question || "").slice(0, 200)}`, age: epoch ? Date.now() - epoch * 1000 : 0, kind: "ask" }] };
 }
 
 // RFIs from every job dir with an rfi.json. Blocking ones are individual tier 2 rows;
@@ -158,24 +168,30 @@ function rfiTiers() {
 }
 
 // Tier 3: money. Personal bills due soon or just past due, one batched AP row, draft pay apps.
+// Today's calendar date in Chicago as a UTC-midnight ms value, so due_date minus today is whole days.
+const chicagoToday = () => Date.parse(new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" }));
 async function billsDue() {
   const all = await getJson(`${BILLS_TRACKER()}/api/bills`);
   const rows = []; let stale = 0;
+  const today = chicagoToday();
   for (const b of Array.isArray(all) ? all : []) {
     if (b.status && b.status !== "active") continue;
     if (b.paid_this_cycle) continue;
-    const d = b.days_until;
+    // due_date is the real date. days_until counts from next_date, a projection that goes stale
+    // (-123 for a bill really due 3 days ago), so it is only a fallback when due_date is null.
+    const due = b.due_date ? Date.parse(b.due_date) : NaN;
+    const hasDue = Number.isFinite(due);
+    const d = hasDue ? Math.round((due - today) / DAY) : b.days_until;
     if (typeof d !== "number") continue;
-    // days_until counts from next_date, a projection that goes stale; past_due is the tracker's own
-    // call from the real due date. Past rows with past_due=false are stale projections, not late bills.
-    const late = b.past_due && d >= -14 && d < 0;
+    const late = d < 0 && d >= -14 && (hasDue || b.past_due);
     if (late || (d >= 0 && d <= 3)) {
       const amt = b.amount != null ? ` $${Number(b.amount).toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "";
       const when = d < 0 ? `${-d}d past due` : d === 0 ? "due today" : `due in ${d}d`;
       rows.push({ tier: 3, key: `pbill:${b.id}`, title: `${b.name}${amt}, ${when}`, age: d < 0 ? -d * DAY : 0, sortAge: -d * DAY, link: "/money/sheet", kind: "bill" });
     } else if (d < 0) stale++;
   }
-  if (stale) rows.push({ tier: 3, key: "pbills:stale", title: `${stale} bill${stale === 1 ? " has a stale due date" : "s have stale due dates"}`, age: 0, sortAge: -1, link: "/money/sheet" });
+  // sortAge far below any real row so the batch always sits last in the tier
+  if (stale) rows.push({ tier: 3, key: "pbills:stale", title: `${stale} bill${stale === 1 ? " has a stale due date" : "s have stale due dates"}`, age: 0, sortAge: -1e15, link: "/money/sheet" });
   return { rows, dueCount: rows.filter(r => r.kind === "bill").length };
 }
 async function apPending() {
@@ -240,6 +256,7 @@ function tier6Projects() {
     for (const h of parseInflight().headings) {
       if (h.status === "done" || !WAIT_RE.test(h.title) || /JAKE'S PLATE/i.test(h.title)) continue;
       const at = h.date ? Date.parse(h.date) : 0;
+      if (at && Date.now() - at > 45 * DAY) continue; // months-old "waiting on Jake" headings are history, not asks
       rows.push({ tier: 6, key: `wait:${h.id}`, title: h.title.replace(/^[^\w]+/, "").replace(/\s*\((\d{4}-\d{2}-\d{2})?,?\s*(waiting|waits|awaiting)[^)]*\)\s*$/i, "").replace(/^(.{0,110})(\s.*)?$/, (_, a, rest) => rest ? `${a}…` : a), age: at ? Date.now() - at : 0, link: "/projects" });
     }
   } catch { /* parse failure: fine */ }
@@ -256,8 +273,11 @@ export function summarize(md) {
     if (!l || /^#/.test(l) || /^-{3,}$/.test(l) || /^[-*+]\s|^\d+[.)]\s/.test(l)) continue; // headers, rules, list items
     l = l.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`]+/g, "").trim();
     if (/^(theme|wildcard)\s*:/i.test(l)) continue;
-    // per line, and only terminated sentences: a lead-in ending in ":" is introducing a list we skip
-    for (const m of l.match(/[^.!?]+[.!?]+(?=\s|$)/g) || []) sentences.push(m.trim());
+    // per line, and only terminated sentences: a lead-in ending in ":" is introducing a list we skip.
+    // A period inside "3.5" or "$12,400.50" is not followed by whitespace, so it never ends a sentence;
+    // abbreviations are masked first so "Dr. Smith" and "Oct. 3" stay whole.
+    l = l.replace(/\b(Dr|Mr|Mrs|Ms|St|Jr|Sr|No|Inc|Co|Ltd|Oct|Nov|Dec|Jan|Feb|Mar|Apr|Aug|Sept?|vs|etc)\.(?=\s)/g, "$1§").replace(/\b(e\.g|i\.e)\./g, "$1§");
+    for (const m of l.match(/.+?[.!?]+(?=\s|$)/g) || []) sentences.push(m.replace(/§/g, ".").trim());
   }
   const out = []; let len = 0;
   for (const s of sentences) {
@@ -284,14 +304,16 @@ async function digest() {
 // Memo holds the UNSNOOZED build; snoozes apply on every read so snooze/unsnooze are instant.
 let memo = { at: 0, data: null };
 let inflight = null;
+let gen = 0; // bumped on invalidate so a build already in flight cannot re-cache pre-change data
 // Called by the rfi.json watcher and by snooze/decide: without this the client refetches
 // and gets the same 60s-memoized result back.
-export function invalidateBrief() { memo = { at: 0, data: null }; }
+export function invalidateBrief() { gen++; memo = { at: 0, data: null }; inflight = null; }
 
 async function build() {
   if (memo.data && Date.now() - memo.at < 60_000) return memo.data;
   if (inflight) return inflight;
-  inflight = (async () => {
+  const myGen = gen;
+  const p = (async () => {
     const chips = [];
     const run = async (name, fn) => {
       try { return await fn(); } catch { chips.push({ source: name, label: `${name} unavailable` }); return { rows: [] }; }
@@ -308,10 +330,11 @@ async function build() {
       systems: { overall: sys.overall || null, red: sys.redCount || 0 },
       counts: { needs: need.rows.length + ask.rows.length + t2.length, blockingRfis: t2.length, billsDue: bills.dueCount || 0, photos: media.photos || 0 },
     };
-    memo = { at: Date.now(), data };
+    if (myGen === gen) memo = { at: Date.now(), data }; // stale build still answers its own callers, just does not cache
     return data;
-  })().finally(() => { inflight = null; });
-  return inflight;
+  })().finally(() => { if (inflight === p) inflight = null; });
+  inflight = p;
+  return p;
 }
 
 export async function buildBrief() {
@@ -327,8 +350,17 @@ export async function buildBrief() {
   // tier first, oldest first inside a tier — the whole point
   rows.sort((a, b) => a.tier - b.tier || (b.sortAge ?? b.age) - (a.sortAge ?? a.age));
 
+  // Top 6 holds at most 3 voice-dump needs, so a stale backlog cannot bury blocking RFIs and late bills.
+  // Src/views/Brief.jsx applies the same cap to `all`.
+  const queue = []; let needsIn = 0;
+  for (const r of rows) {
+    if (queue.length === 6) break;
+    if (r.kind === "need" && needsIn >= 3) continue;
+    if (r.kind === "need") needsIn++;
+    queue.push(r);
+  }
   return {
-    generated: new Date(memo.at || now).toISOString(), queue: rows.slice(0, 6), more: Math.max(0, rows.length - 6), all: rows,
+    generated: new Date(memo.at || now).toISOString(), queue, more: Math.max(0, rows.length - queue.length), all: rows,
     digest: b.digest, chips: b.chips, snoozed, systems: b.systems, counts: b.counts,
   };
 }
