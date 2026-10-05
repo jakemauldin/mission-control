@@ -74,6 +74,9 @@ app.post("/internal/ring", loopbackOnly, (req, res) => {
   const r = ring.create(req.body || {});
   res.status(r.status).json(r.body);
 });
+// Presence for agents on this host (voice-dump decides ring vs. text on it). Must sit BEFORE
+// "/internal/ring/:id", which would otherwise swallow "status".
+app.get("/internal/ring/status", loopbackOnly, (_req, res) => res.json({ ok: true, ...ring.status() }));
 app.get("/internal/ring/:id", loopbackOnly, (req, res) => {
   const r = ring.get(req.params.id);
   if (!r) return res.status(404).json({ ok: false, error: "unknown ring id" });
