@@ -5,7 +5,7 @@
 // (captions + photo picks, learning loop) and true link unfurls carry over.
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { C, BRAND } from "../lib/colors";
+import { C, BRAND, BTN } from "../lib/colors";
 import { Section } from "../components/ui/Card";
 
 const AVATAR = "/logo-64.png";
@@ -701,7 +701,7 @@ export default function PostBuilder() {
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                     <span style={{ fontSize: 11, color: BRAND.focus, fontWeight: 700, letterSpacing: 0.4 }}>{i.angle.toUpperCase()}</span>
                     <span style={{ fontSize: 11, color: C.dim }}>{i.platforms.join(" · ")}</span>
-                    <button onClick={() => applyIdea(i)} style={{ marginLeft: "auto", padding: "5px 12px", background: BRAND.accent, color: "#0C1017", border: "none", borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>Use this</button>
+                    <button onClick={() => applyIdea(i)} style={{ marginLeft: "auto", padding: "5px 12px", background: BTN.bg, color: BTN.fg, border: "none", borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>Use this</button>
                   </div>
                   <div style={{ fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap", marginBottom: 8 }}>{i.caption}</div>
                   <div style={{ display: "flex", gap: 5 }}>
@@ -723,7 +723,7 @@ export default function PostBuilder() {
                 })}
                 style={{ padding: "5px 11px", borderRadius: 16, fontSize: 12, cursor: "pointer",
                          border: `1px solid ${on[k] ? BRAND.border : C.border}`,
-                         background: on[k] ? "rgba(168,149,43,.15)" : C.card, color: on[k] ? BRAND.focus : C.text }}>
+                         background: on[k] ? "rgba(122,178,255,.14)" : C.card, color: on[k] ? BRAND.focus : C.text }}>
                 {p.label}
               </button>
             ))}
@@ -759,11 +759,11 @@ export default function PostBuilder() {
           </div>
           {queueErrors.length > 0 && (
             <div style={{ marginBottom: 10 }}>
-              {queueErrors.map(e => <div key={e} style={{ fontSize: 12, color: "#D96C5C" }}>✕ {e}</div>)}
+              {queueErrors.map(e => <div key={e} style={{ fontSize: 12, color: "#FF8F85" }}>✕ {e}</div>)}
             </div>
           )}
           <button onClick={queue} disabled={!caption || !activePlatforms.length || submitting || queueErrors.length > 0}
-            style={{ padding: "9px 16px", background: BRAND.accent, color: "#0C1017", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer", opacity: (!caption || !activePlatforms.length) ? 0.5 : 1 }}>
+            style={{ padding: "9px 16px", background: BTN.bg, color: BTN.fg, border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer", opacity: (!caption || !activePlatforms.length) ? 0.5 : 1 }}>
             Queue post ({activePlatforms.length} platform{activePlatforms.length === 1 ? "" : "s"})
           </button>
           {queued && <div style={{ marginTop: 8, fontSize: 12, color: BRAND.focus }}>Queued {queued} — posting runs through the existing pipelines, nothing published yet.</div>}
@@ -800,7 +800,7 @@ export default function PostBuilder() {
                 </div>
               )}
               <Preview platform={tab} placement={effPlacement} caption={text} refs={effRefs} link={link} extras={extras} />
-              <div style={{ marginTop: 10, fontSize: 12, color: text.length > P.cap ? "#D96C5C" : C.dim }}>
+              <div style={{ marginTop: 10, fontSize: 12, color: text.length > P.cap ? "#FF8F85" : C.dim }}>
                 {text.length}/{P.cap} characters
                 {(overrides[tab] !== undefined) && <button onClick={() => setOverrides(o => { const n = { ...o }; delete n[tab]; return n; })}
                   style={{ marginLeft: 8, background: "none", border: "none", color: BRAND.link, fontSize: 12, cursor: "pointer" }}>clear override</button>}
@@ -843,7 +843,7 @@ export default function PostBuilder() {
                 <div style={{ marginTop: 10 }}>
                   <input value={extras.youtube.title} onChange={e => setExtra("youtube", "title", e.target.value)}
                     placeholder="Video title (blank = first caption line)" maxLength={100} style={inp} />
-                  <div style={{ fontSize: 11, color: (extras.youtube.title || text.split("\n")[0]).length > 100 ? "#D96C5C" : C.dim, marginTop: 3 }}>
+                  <div style={{ fontSize: 11, color: (extras.youtube.title || text.split("\n")[0]).length > 100 ? "#FF8F85" : C.dim, marginTop: 3 }}>
                     {(extras.youtube.title || text.split("\n")[0]).length}/100 title characters
                   </div>
                 </div>
@@ -860,7 +860,7 @@ export default function PostBuilder() {
                   <PhotoStrip effRefs={effRefs} allRefs={refs} onToggle={togglePhoto} onPlace={placePhoto} />
                 </div>
               )}
-              {warns.map(w => <div key={w} style={{ marginTop: 6, fontSize: 12, color: "#D9A93B" }}>⚠ {w}</div>)}
+              {warns.map(w => <div key={w} style={{ marginTop: 6, fontSize: 12, color: "#F0B34A" }}>⚠ {w}</div>)}
               {tab === "facebook" && text.length > PLATFORMS.facebook.trunc && (
                 <div style={{ marginTop: 6, fontSize: 12, color: C.dim }}>
                   {Math.round((1 - PLATFORMS.facebook.trunc / text.length) * 100)}% of the body falls below "See more"
@@ -874,7 +874,7 @@ export default function PostBuilder() {
                   <button onClick={dictate} title="Dictate"
                     style={{ padding: "8px 12px", background: listening ? BRAND.accent : "none", border: `1px solid ${C.border}`, color: listening ? "#0C1017" : C.text, borderRadius: 8, cursor: "pointer" }}>🎤</button>
                   <button onClick={revise} disabled={revising || !reviseText.trim()}
-                    style={{ padding: "8px 14px", background: BRAND.accent, color: "#0C1017", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer", opacity: revising || !reviseText.trim() ? 0.5 : 1, whiteSpace: "nowrap" }}>
+                    style={{ padding: "8px 14px", background: BTN.bg, color: BTN.fg, border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer", opacity: revising || !reviseText.trim() ? 0.5 : 1, whiteSpace: "nowrap" }}>
                     {revising ? "Working…" : "Do it"}
                   </button>
                 </div>

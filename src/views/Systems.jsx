@@ -16,7 +16,7 @@ const BAD = "#f87171";
 const KASM_VIEWER = "https://risingcreek-ai.taild0b4c6.ts.net:7901";
 
 function Dot({ ok, warn }) {
-  return <span style={{ width: 8, height: 8, borderRadius: "50%", background: !ok ? BAD : warn ? "#D9A93B" : OK, flexShrink: 0, display: "inline-block" }} />;
+  return <span style={{ width: 8, height: 8, borderRadius: "50%", background: !ok ? BAD : warn ? "#F0B34A" : OK, flexShrink: 0, display: "inline-block" }} />;
 }
 
 // Rows wrap instead of squeezing columns: on a phone the name sits on one line and the

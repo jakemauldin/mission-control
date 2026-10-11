@@ -43,9 +43,9 @@ function useNarrow() {
 }
 
 const TONE = {
-  bad: { bg: "rgba(217,108,92,0.12)", bd: "rgba(217,108,92,0.45)", fg: "#F0A397" },
-  warn: { bg: "rgba(217,169,59,0.12)", bd: "rgba(217,169,59,0.42)", fg: STATUS.warn },
-  good: { bg: "rgba(124,182,92,0.12)", bd: "rgba(124,182,92,0.38)", fg: "#A9D58F" },
+  bad: { bg: "rgba(255,143,133,0.12)", bd: "rgba(255,143,133,0.45)", fg: "#F0A397" },
+  warn: { bg: "rgba(240,179,74,0.12)", bd: "rgba(240,179,74,0.42)", fg: STATUS.warn },
+  good: { bg: "rgba(111,208,47,0.12)", bd: "rgba(111,208,47,0.38)", fg: "#A9D58F" },
   info: { bg: "rgba(255,255,255,0.05)", bd: "rgba(255,255,255,0.12)", fg: C.dim },
 };
 const pill = (tone = "info") => ({ fontSize: 10.5, padding: "2px 8px", borderRadius: 999, whiteSpace: "nowrap", fontWeight: 600,

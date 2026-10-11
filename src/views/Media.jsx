@@ -1,7 +1,7 @@
 // Media workspace (DESIGN.md §3). Phase 2 adds generation dispatch: the UI collects
 // INTENT only — the prompt itself is authored by Fable in Jake's session, never here.
 import { useState, useEffect, useCallback } from "react";
-import { C, BRAND } from "../lib/colors";
+import { C, BRAND, BTN } from "../lib/colors";
 import { Section } from "../components/ui/Card";
 import { Link } from "react-router-dom";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -65,7 +65,7 @@ export default function Media() {
           Post builder →
         </Link>
         <a href={GALLERY} target="_blank" rel="noopener noreferrer"
-          style={{ display: "inline-block", padding: "10px 18px", background: BRAND.accent, color: "#0C1017", borderRadius: 8, fontWeight: 600, fontSize: 14, textDecoration: "none" }}>
+          style={{ display: "inline-block", padding: "10px 18px", background: BTN.bg, color: BTN.fg, borderRadius: 8, fontWeight: 600, fontSize: 14, textDecoration: "none" }}>
           Open the gallery →
         </a>
       </Section>
@@ -136,7 +136,7 @@ export default function Media() {
           <input value={form.refs} onChange={e => setForm(f => ({ ...f, refs: e.target.value }))}
             placeholder="extra reference paths, comma-separated (optional)" style={inp} />
           <div>
-            <button type="submit" style={{ padding: "9px 16px", background: BRAND.accent, color: "#0C1017", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+            <button type="submit" style={{ padding: "9px 16px", background: BTN.bg, color: BTN.fg, border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
               Queue it
             </button>
             <span style={{ color: C.dim, fontSize: 12, marginLeft: 10 }}>Fable writes the prompt; this only files the intent.</span>

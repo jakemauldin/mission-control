@@ -455,3 +455,7 @@ Systems, if a real spend log exists by then.
 2. **No 6am Telegram push.** The Brief is a place Jake opens. No new cron.
 3. **Clean cut.** `start.sh` switches to the one authenticated process in phase 1; `:5173` and
    the open `:3080` die the same night.
+
+## 2026-10-10 palette change: Tread Connection blue and orange
+
+The olive/gold ramp in section 8 is retired for this dashboard (Jake: "tired of looking at olive green and yellow"). `src/lib/colors.js` now holds navy ground `#1B1D29`, card `#242735`, line `#3A3E54`, blue accent `#7AB2FF` (`BRAND.accent/link/focus`), orange `BTN` (`#FF5600`, text `#242735`) for the one primary action per view only, and amber warn `#F0B34A` kept apart from the orange. Olive remains on client documents and the website. Do not use orange for status, links or warnings.

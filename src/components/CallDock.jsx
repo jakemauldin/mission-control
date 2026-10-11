@@ -61,7 +61,7 @@ export default function CallDock({ call, onClose }) {
         <span style={{ width: 8, height: 8, borderRadius: "50%", background: STATUS.good, boxShadow: `0 0 6px ${STATUS.good}` }} />
         <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: C.bright }}>{mode === "popped" ? "Call is in its own window" : "On a call"}</span>
         {mode === "dock" && <button type="button" onClick={popOut} style={btn}>Pop out</button>}
-        <button type="button" onClick={hangUp} style={{ ...btn, color: "#0E0C06", background: STATUS.bad, border: `1px solid ${STATUS.bad}`, fontWeight: 600 }}>Hang up</button>
+        <button type="button" onClick={hangUp} style={{ ...btn, color: "#1B1D29", background: STATUS.bad, border: `1px solid ${STATUS.bad}`, fontWeight: 600 }}>Hang up</button>
       </div>
       {err && <div style={{ padding: "8px 10px", fontSize: 12, color: STATUS.warn, borderBottom: `1px solid ${C.border}` }}>{err}</div>}
       {mode === "dock" && (
