@@ -78,7 +78,7 @@ function Shell() {
     const load = () => fetch("/api/systems/outcomes").then(r => r.json()).then(d => setOverall(d.data?.overall)).catch(() => {});
     load(); const t = setInterval(load, 60000); return () => clearInterval(t);
   }, []);
-  const dot = overall === "RED" ? "#D96C5C" : overall === "GREEN" ? "#7CB65C" : "#948D74";
+  const dot = overall === "RED" ? "#FF8F85" : overall === "GREEN" ? "#6FD02F" : "#A3A8BC";
   const dotText = overall === "RED" ? "Systems status: red. Something needs attention. Open Systems."
     : overall === "GREEN" ? "Systems status: green. Everything is running. Open Systems."
     : "Systems status: unknown. Open Systems.";

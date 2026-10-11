@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { C, BRAND } from "../lib/colors";
+import { C, BRAND, BTN } from "../lib/colors";
 
 export default function Login() {
   const [pass, setPass] = useState("");
@@ -28,7 +28,7 @@ export default function Login() {
         <input type="password" name="passphrase" autoComplete="current-password" autoFocus aria-label="Passphrase" aria-invalid={!!err} value={pass} onChange={(e) => setPass(e.target.value)} placeholder="Passphrase"
           style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${err ? "#f87171" : C.border}`, background: C.bg, color: C.text, fontSize: 14, marginBottom: 12, boxSizing: "border-box" }} />
         {err && <div role="alert" style={{ color: "#f87171", fontSize: 12, marginBottom: 10 }}>{err}</div>}
-        <button type="submit" disabled={busy} style={{ width: "100%", padding: "10px 0", borderRadius: 8, border: "none", background: BRAND.accent, color: "#0C1017", fontWeight: 600, fontSize: 14, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>
+        <button type="submit" disabled={busy} style={{ width: "100%", padding: "10px 0", borderRadius: 8, border: "none", background: BTN.bg, color: BTN.fg, fontWeight: 600, fontSize: 14, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>
           {busy ? "Opening..." : "Open"}
         </button>
       </form>

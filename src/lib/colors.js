@@ -1,29 +1,31 @@
-// Rising Creek theme tokens. Values derive from rc-brand-config.json
-// (#635500 dark olive/gold is THE brand color; Poppins headings, Open Sans body).
-// Dark surfaces use warm near-blacks so the olive family reads as Rising Creek,
-// not as a generic slate dashboard. #635500 itself fails contrast on dark
-// (2.57:1) so accents come from the derived ramp below (DESIGN.md §8).
+// Tread Connection theme tokens: navy ground, blue accent, orange only for the one primary action.
+// Moved off the Rising Creek olive/gold on 2026-10-10 (Jake: "tired of looking at olive green and yellow").
+// Navy values match Tread Connection's own CSS (pacenotes/web/app.css: #242735 panel, #1b1d29 ground, #3a3e54 line).
+// Olive stays on client documents and the risingcreek.ai site, not on dashboards.
 export const C = {
-  bg: "#0E0C06",        // warm near-black
-  card: "#181509",      // warm card
-  border: "#2E2915",    // olive-tinged border
-  bdr: "#2E2915",       // alias of border: Systems, Projects, JobDetail, OpenBills and CommandBar read C.bdr
-  text: "#DDD8C6",      // warm off-white body
-  dim: "#948D74",       // warm slate
-  bright: "#F4EFDE",    // headings
-  accent: "#A8952B",    // brand accent (was Divi orange — retired)
+  bg: "#1B1D29",        // navy ground
+  card: "#242735",      // navy panel
+  border: "#3A3E54",    // line
+  bdr: "#3A3E54",       // alias of border: Systems, Projects, JobDetail, OpenBills and CommandBar read C.bdr
+  text: "#D5D8E3",      // body
+  dim: "#A3A8BC",       // secondary text
+  bright: "#FFFFFF",    // headings
+  accent: "#7AB2FF",    // blue accent
 };
 
 export const BRAND = {
-  primary: "#635500",  // the true brand color — light surfaces (client portal) only
-  border: "#8A7A12",   // 4.42:1 on card — borders + large text
-  accent: "#A8952B",   // 6.35:1 — default accent
-  link:   "#C2AC3D",   // 8.4:1 — links + emphasis
-  focus:  "#D6C255",   // 10.6:1 — hover + focus
+  primary: "#1F5FBF",  // blue for light surfaces (client portal) only
+  border: "#5F8FD8",   // borders + large text
+  accent: "#7AB2FF",   // default accent (selected chips, active underline)
+  link:   "#9CC4FF",   // links + emphasis
+  focus:  "#B8D6FF",   // hover + focus + active nav text
 };
 
-// status colors (shared by sv() and views)
-export const STATUS = { good: "#7CB65C", warn: "#D9A93B", bad: "#D96C5C" };
+// Orange is for the one primary action button per view and nothing else. Never a status, a link or a warning.
+export const BTN = { bg: "#FF5600", fg: "#242735", edge: "#FF5600" };
+
+// status colors (shared by sv() and views). Warn is amber, apart from the orange button and the blue accent.
+export const STATUS = { good: "#6FD02F", warn: "#F0B34A", bad: "#FF8F85" };
 
 export const crd = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 };
 export const inn = { background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 };

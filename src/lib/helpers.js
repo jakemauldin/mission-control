@@ -34,7 +34,7 @@ export const sv = (s) => {
   return {
     bg: "rgba(255,255,255,0.03)",
     bdr: "rgba(255,255,255,0.1)",
-    txt: "#CBD5E1",
+    txt: "#D5D8E3",
     dot: "#64748B",
   };
 };
@@ -45,7 +45,7 @@ export const btnS = (p) => ({
   borderRadius: 8,
   border: "none",
   background: p ? C.accent : "rgba(255,255,255,0.06)",
-  color: p ? "#FFF" : C.text,
+  color: p ? "#1B1D29" : C.text,
   cursor: "pointer",
   fontFamily: "inherit",
   fontWeight: p ? 600 : 500,

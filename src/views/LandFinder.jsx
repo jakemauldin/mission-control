@@ -22,7 +22,7 @@ const getId = (r) => r.zpid || r.id;
 
 function Chip({ active, onClick, children }) {
   return (
-    <button onClick={onClick} style={{ padding: "3px 9px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: C.font, background: active ? C.accent : "rgba(255,255,255,0.05)", color: active ? "#FFF" : C.dim, transition: "all .15s" }}>{children}</button>
+    <button onClick={onClick} style={{ padding: "3px 9px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: C.font, background: active ? C.accent : "rgba(255,255,255,0.05)", color: active ? "#1B1D29" : C.dim, transition: "all .15s" }}>{children}</button>
   );
 }
 function ChipRow({ label, steps, value, set }) {
@@ -117,7 +117,7 @@ export default function LandFinderView() {
     <Section title="Land Finder — Telluride / San Miguel + Ouray (+ Montrose foreclosures)">
       <div className="flex gap-1 mb-3" style={{ background: "rgba(255,255,255,0.04)", padding: 3, borderRadius: 8, width: "fit-content" }}>
         {[["listings", "🏷️ Listings"], ["offmarket", "🎯 Off-market"], ["foreclosures", "⚖️ Foreclosures"]].map(([k, l]) => (
-          <button key={k} onClick={() => { setMode(k); setSort("score"); setTown(""); }} style={{ padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: C.font, background: mode === k ? C.accent : "transparent", color: mode === k ? "#FFF" : C.dim }}>{l}</button>
+          <button key={k} onClick={() => { setMode(k); setSort("score"); setTown(""); }} style={{ padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: C.font, background: mode === k ? C.accent : "transparent", color: mode === k ? "#1B1D29" : C.dim }}>{l}</button>
         ))}
       </div>
 

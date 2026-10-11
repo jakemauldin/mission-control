@@ -2,7 +2,7 @@
 // dock. Mount once, globally, inside <PresenceProvider>. Only the leader tab of this browser acts,
 // so two open tabs do not ring twice.
 import { useEffect, useRef, useState } from "react";
-import { C, BRAND, STATUS } from "../lib/colors";
+import { C, BRAND, BTN, STATUS } from "../lib/colors";
 import { usePresence, armAudio, playChime } from "../hooks/usePresence";
 import CallDock from "./CallDock";
 
@@ -79,7 +79,7 @@ function Banner({ ring, p }) {
           </div>
         ) : (
           <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" onClick={answer} style={{ flex: 1, padding: "9px 16px", borderRadius: 8, background: BRAND.accent, color: "#0E0C06", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Answer</button>
+            <button type="button" onClick={answer} style={{ flex: 1, padding: "9px 16px", borderRadius: 8, background: BTN.bg, color: BTN.fg, border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Answer</button>
             <button type="button" onClick={() => p.later(ring.id)} style={{ padding: "9px 16px", borderRadius: 8, background: "transparent", color: C.text, border: `1px solid ${C.border}`, fontSize: 14, cursor: "pointer" }}>Later</button>
           </div>
         )}

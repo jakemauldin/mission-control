@@ -85,7 +85,7 @@ const WHERE_ORDER = ["host crontab", "openclaw internal", "n8n local", "n8n clou
 
 const TONES = {
   bad: { bg: "rgba(220,38,38,0.12)", bd: "rgba(220,38,38,0.4)", fg: "#FCA5A5" },
-  warn: { bg: "rgba(217,169,59,0.12)", bd: "rgba(217,169,59,0.4)", fg: STATUS.warn },
+  warn: { bg: "rgba(240,179,74,0.12)", bd: "rgba(240,179,74,0.4)", fg: STATUS.warn },
   good: { bg: "rgba(42,157,143,0.12)", bd: "rgba(42,157,143,0.35)", fg: "#A7F3D0" },
   info: { bg: "rgba(96,165,250,0.10)", bd: "rgba(96,165,250,0.35)", fg: "#93C5FD" },
   mute: { bg: "rgba(255,255,255,0.05)", bd: "rgba(255,255,255,0.12)", fg: C.dim },
@@ -366,7 +366,7 @@ function ListRow({ selected, onClick, children }) {
   return (
     <button
       type="button" onClick={onClick} data-sel={selected ? "1" : undefined}
-      style={{ display: "block", width: "100%", textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", padding: "9px 10px", border: "none", borderBottom: `1px solid ${C.border}`, borderLeft: `3px solid ${selected ? BRAND.focus : "transparent"}`, background: selected ? "rgba(214,194,85,0.10)" : "transparent" }}
+      style={{ display: "block", width: "100%", textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", padding: "9px 10px", border: "none", borderBottom: `1px solid ${C.border}`, borderLeft: `3px solid ${selected ? BRAND.focus : "transparent"}`, background: selected ? "rgba(122,178,255,0.12)" : "transparent" }}
     >
       {children}
     </button>
@@ -836,7 +836,7 @@ function BitwardenTab({ item }) {
   const totals = bw.totals && typeof bw.totals === "object" ? bw.totals : null;
   return (
     <>
-      <div style={{ ...noteS, border: `1px solid ${stale ? "rgba(217,169,59,0.4)" : C.border}`, marginBottom: 12 }}>
+      <div style={{ ...noteS, border: `1px solid ${stale ? "rgba(240,179,74,0.4)" : C.border}`, marginBottom: 12 }}>
         <div>Source: <b style={{ color: C.bright }}>{show(bw.source)}</b> · as of <b style={{ color: C.bright }}>{show(bw.asOf)}</b>{ageDays != null && ` (${ageDays} days ago)`}</div>
         {stale && <div style={{ color: STATUS.warn, marginTop: 4 }}>Stale: {ageDays == null ? "this review has no readable as-of date" : `this review is ${ageDays} days old (limit ${STALE_REVIEW_DAYS})`}. The vault may have changed since.</div>}
         <div style={{ color: C.dim, marginTop: 4 }}>This is vault metadata only: site, username, owner, collection. Never a password.</div>
@@ -1190,7 +1190,7 @@ export default function AccessView() {
             Every credential, service connection, cron and Bitwarden login on this server. Values never appear here, only fingerprints.{" "}
             <Link to="/systems" style={linkS}>← Systems</Link>
           </div>
-          {data?.sample && <div style={{ ...noteS, border: "1px solid rgba(217,169,59,0.4)", color: STATUS.warn, marginBottom: 10 }}>Showing sample data: run the collector</div>}
+          {data?.sample && <div style={{ ...noteS, border: "1px solid rgba(240,179,74,0.4)", color: STATUS.warn, marginBottom: 10 }}>Showing sample data: run the collector</div>}
           {data && (
             <div style={{ fontSize: 12, color: C.dim, marginBottom: 10 }}>
               Generated <b style={{ color: C.text }}>{fmtRel(data.generatedAt, now) || "at an unknown time"}</b>{has(data.generatedAt) && <> · {fmtAbs(data.generatedAt)}</>}

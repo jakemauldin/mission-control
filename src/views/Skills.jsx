@@ -48,8 +48,8 @@ const inputS = {
 const monoS = { ...inputS, fontFamily: MONO, fontSize: 12, lineHeight: 1.5, resize: "vertical" };
 const pillS = (tone) => ({
   fontSize: 10, padding: "2px 8px", borderRadius: 8, whiteSpace: "nowrap", fontWeight: 600,
-  background: tone === "warn" ? "rgba(217,169,59,0.12)" : "rgba(255,255,255,0.05)",
-  border: `1px solid ${tone === "warn" ? "rgba(217,169,59,0.4)" : "rgba(255,255,255,0.12)"}`,
+  background: tone === "warn" ? "rgba(240,179,74,0.12)" : "rgba(255,255,255,0.05)",
+  border: `1px solid ${tone === "warn" ? "rgba(240,179,74,0.4)" : "rgba(255,255,255,0.12)"}`,
   color: tone === "warn" ? STATUS.warn : C.dim,
 });
 const noteS = { fontSize: 12, color: C.text, padding: "8px 10px", background: "rgba(255,255,255,0.04)", borderRadius: 8, whiteSpace: "pre-wrap" };
