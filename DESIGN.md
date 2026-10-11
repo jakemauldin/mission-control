@@ -300,12 +300,13 @@ other.
   `colors.js` becomes a thin JS mirror reading the same variables. New code uses Tailwind
   utilities. Existing live views keep their inline styles and are migrated only when touched for
   another reason. No big-bang restyle.
-- **Brand ramp.** `#635500` is the anchor and scores 7.42:1 on white, so the client portal uses
-  it directly. On the dark dashboard it scores 2.57:1 and fails, so the dark surfaces use a
-  derived olive-gold ramp: `#8A7A12` (4.42:1, borders and large text only), `#A8952B` (6.35:1,
-  default accent), `#C2AC3D` (8.4:1, links and emphasis), `#D6C255` (10.6:1, hover and focus
-  ring). The current `#E8722A` orange is not a Rising Creek color and is retired. Charts follow
-  the dataviz skill conventions in both themes.
+- **Brand ramp (revised 2026-10-10).** The client portal keeps the website palette: `#635500`
+  scores 7.42:1 on white and is used directly. The dark dashboard uses the Tread Connection
+  palette in `src/lib/colors.js`: navy ground `#1B1D29`, card `#242735`, line `#3A3E54`, blue
+  accent `#7AB2FF` for links, focus and emphasis, orange `#FF5600` (text `#242735`) only on the one
+  primary action per view, and amber `#F0B34A`, green and red only for state. The old olive-gold
+  dark ramp (`#8A7A12` to `#D6C255`) is retired; see the note at the end of this file. Charts
+  follow the dataviz skill conventions in both themes.
 - **No component library.** Confirmed working at this scale with two primitives (`Section`,
   `Row`). Adding MUI/Chakra/shadcn is the kitchen sink the brief rejects.
 - **No state library, and no react-query in phase 1 or 2.** The existing `useApi` polling hook
