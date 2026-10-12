@@ -24,6 +24,7 @@ import JobsView from "./views/Jobs";
 import BillingView from "./views/Billing";
 import OpenBillsView from "./views/OpenBills";
 import ProjectsView from "./views/Projects";
+import AppBuildsView from "./views/AppBuilds";
 import LandFinderView from "./views/LandFinder";
 import SystemsView from "./views/Systems";
 import SessionsView from "./views/Sessions";
@@ -45,6 +46,7 @@ const NAV = {
   primary: [
     { to: "/", label: "Brief", short: "Brief", icon: "brief", end: true },
     { to: "/projects", label: "Projects", short: "Projects", icon: "projects" },
+    { to: "/apps", label: "Apps", short: "Apps", icon: "apps" },
     { to: "/money/pay-apps", label: "Money", short: "Money", icon: "money", match: "/money" },
     { to: "/rfis", label: "RFIs", short: "RFIs", icon: "rfis" },
     { to: "/sessions", label: "Sessions", short: "Sessions", icon: "sessions" },
@@ -129,6 +131,7 @@ function Shell() {
           <Route path="/media/post" element={<PostBuilder />} />
           <Route path="/systems" element={<SystemsWrap healthData={healthData} />} />
           <Route path="/projects" element={<ProjectsView />} />
+          <Route path="/apps" element={<AppBuildsView />} />
           <Route path="/sessions" element={<SessionsView />} />
           <Route path="/skills" element={<SkillsView />} />
           <Route path="/land" element={<LandFinderView />} />
