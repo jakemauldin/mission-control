@@ -97,8 +97,8 @@ export default function OpenSign() {
           </div>
           <Toggle on={settings.takesCalls} onChange={(v) => update({ takesCalls: v })} label="Take calls on this device"
             hint={p.me.label === "Phone" ? "Off by default on a phone so it never competes with the laptop." : undefined} />
-          <Toggle on={settings.dropIn} disabled={!settings.takesCalls} onChange={(v) => update({ dropIn: v })} label="Drop in (urgent only)"
-            hint="Urgent rings connect after 3 seconds if you were just here. Off by default." />
+          <Toggle on={settings.dropIn} disabled={!settings.takesCalls} onChange={(v) => update({ dropIn: v })} label="Let agents drop in"
+            hint="While the sign is open, a ring connects after 3 seconds if you were at this device in the last 5 minutes. Otherwise it rings normally." />
           {perm === "denied" && (
             <div style={{ padding: "6px 6px", fontSize: 12, color: STATUS.warn }}>
               Notifications are blocked. Click the lock icon next to the address, then allow Notifications. The chime and banner still work.

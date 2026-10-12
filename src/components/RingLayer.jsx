@@ -40,9 +40,11 @@ function Banner({ ring, p }) {
     return () => { try { n?.close(); } catch { /* already gone */ } };
   }, [ring.id, ring.topic, ring.from]);
 
-  // drop-in: urgent or critical only, device toggle on, and Jake was at the keyboard in the last 5 min
+  // drop-in: any ring while the sign is open (Jake 2026-10-12: "if you need to drop in and I have the
+  // open sign on, you can do so"), device toggle on, and Jake was at the keyboard in the last 5 min so
+  // the mic never opens on an empty room. Away from the keyboard it rings normally.
   const s = p.settings;
-  const eligible = (ring.urgency === "urgent" || ring.urgency === "critical") && s.dropIn && s.takesCalls && p.idleMs() < p.activeWindowMs;
+  const eligible = s.dropIn && s.takesCalls && p.idleMs() < p.activeWindowMs;
   useEffect(() => {
     if (!eligible || cancelled.current) return undefined;
     const end = Date.now() + DROP_IN_MS;

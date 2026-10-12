@@ -27,9 +27,15 @@ function deviceId() {
 }
 
 // Phone defaults to not taking calls so it never competes with the laptop.
+// Drop-in is on by default since 2026-10-12 (it used to be off and urgent-only). dropInV 2 marks a saved
+// setting from after that change, so an older saved "off" is switched on once.
 function readSettings() {
-  const base = { open: false, takesCalls: !isPhone(), dropIn: false };
-  try { return { ...base, ...JSON.parse(lsGet(LS_SIGN) || "{}") }; } catch { return base; }
+  const base = { open: false, takesCalls: !isPhone(), dropIn: true, dropInV: 2 };
+  try {
+    const saved = JSON.parse(lsGet(LS_SIGN) || "{}");
+    if (saved.dropInV !== 2) { delete saved.dropIn; saved.dropInV = 2; }
+    return { ...base, ...saved };
+  } catch { return base; }
 }
 
 // ── sound ────────────────────────────────────────────────────
