@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "updated": "2026-10-12T08:00:00Z",
+  "projects": [
+    {
+      "id": "voice",
+      "name": "Voice stack",
+      "lastTouched": "2026-10-11T12:00:00Z",
+      "todos": [
+        { "id": "shortcut", "text": "Create the watch Shortcut", "by": "ui", "done": false, "created": "2026-10-01T12:00:00Z" },
+        { "id": "agentcli", "text": "Prune the media folder", "by": "cli", "done": false, "created": "2026-10-01T12:00:00Z" },
+        { "id": "test", "text": "Test the Shortcut", "owner": "agent", "done": false, "updated": "2026-10-12T09:00:00Z" },
+        { "id": "notes", "text": "Save the notes", "owner": null, "done": true, "doneAt": "2026-10-12T10:00:00Z" }
+      ]
+    }
+  ]
+}

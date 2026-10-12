@@ -3,7 +3,7 @@ import { execFile } from "child_process";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import { readdirSync, readFileSync, existsSync } from "fs";
-import { join } from "path";
+import { join, dirname } from "path";
 import { requireAuth, checkPassphrase, makeSessionCookie, clearSessionCookie, validSession } from "./lib/auth.js";
 import { buildBrief, snoozeItem, invalidateBrief, unsnoozeItem, listSnoozed, decideNeed } from "./lib/brief.js";
 import { listRfiJobs, getRfi, updateRfiItem } from "./lib/rfis.js";
@@ -37,6 +37,7 @@ import dotenv from "dotenv";
 import { createRing, loopbackOnly } from "./lib/ring.js";
 import { getProjects, createProject, updateProject, addTodo, updateTodo, deleteTodo, slugify } from "./lib/projects.js";
 import { getApps, getPrFiles, getAppBuildsDir } from "./lib/appbuilds.js";
+import { getWork } from "./lib/workitems.js";
 
 dotenv.config({ path: join(import.meta.dirname, ".env") });
 dotenv.config({ path: join(import.meta.dirname, "..", ".env") });
@@ -123,6 +124,10 @@ app.delete("/api/projects/:id/todos/:tid", (req, res) => {
   try { res.json({ ok: deleteTodo(req.params.id, req.params.tid) }); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/projects/slug/:name", (req, res) => res.json({ id: slugify(req.params.name) }));
+
+app.get("/api/work", (_req, res) => {
+  try { res.json(getWork()); } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ── App Builds: metadata plus on-demand PR patches ──────────────────────────
 app.get("/api/apps", (_req, res) => res.json(getApps()));
@@ -705,6 +710,24 @@ try {
         broadcast({ type: "apps_update", topic: "apps", time: new Date().toISOString() });
       }, 500);
     });
+} catch (e) { console.warn("watcher setup failed:", e.message); }
+
+try {
+  const services = process.env.SERVICES_DIR || join(homedir(), "services");
+  const statusDir = join(services, "docs", "status");
+  const files = ["projects/projects.json", "projects/app-builds/apps.json", "TODO.md", "IN-FLIGHT.md"].map((file) => join(services, file));
+  const isWorkFile = (fp) => files.includes(fp) || (dirname(fp) === statusDir && fp.endsWith("-jake-todo.md"));
+  let debounce = null;
+  chokidar.watch([...files, statusDir], {
+    depth: 0, ignoreInitial: true, awaitWriteFinish: { stabilityThreshold: 400 },
+    ignored: (fp, stats) => stats?.isFile() && !isWorkFile(fp),
+  }).on("all", (ev, fp) => {
+    if (!["add", "change", "unlink"].includes(ev) || !isWorkFile(fp)) return;
+    clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      broadcast({ type: "work_update", topic: "work", time: new Date().toISOString() });
+    }, 500);
+  });
 } catch (e) { console.warn("watcher setup failed:", e.message); }
 
 // Periodic health poll → push to clients
