@@ -69,7 +69,7 @@ app.get("/api/health/probe", (_req, res) => res.json({ ok: true }));
 // Host-local only and mounted before the cookie middleware: callers are scripts and Claude
 // sessions with no cookie. loopbackOnly checks the socket address AND refuses proxy headers, so
 // tailscale serve / nginx (which arrive from 127.0.0.1 too) and tailnet peers get 403.
-const ring = createRing();
+const ring = createRing({ broadcast });
 app.post("/internal/ring", loopbackOnly, (req, res) => {
   const r = ring.create(req.body || {});
   res.status(r.status).json(r.body);
