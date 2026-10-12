@@ -38,6 +38,7 @@ import { createRing, loopbackOnly } from "./lib/ring.js";
 import { getProjects, createProject, updateProject, addTodo, updateTodo, deleteTodo, slugify } from "./lib/projects.js";
 import { getApps, getPrFiles, getAppBuildsDir } from "./lib/appbuilds.js";
 import { getWork } from "./lib/workitems.js";
+import { applyWorkAction } from "./lib/workactions.js";
 
 dotenv.config({ path: join(import.meta.dirname, ".env") });
 dotenv.config({ path: join(import.meta.dirname, "..", ".env") });
@@ -127,6 +128,13 @@ app.get("/api/projects/slug/:name", (req, res) => res.json({ id: slugify(req.par
 
 app.get("/api/work", (_req, res) => {
   try { res.json(getWork()); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/work/:id", async (req, res) => {
+  try {
+    const r = await applyWorkAction(req.params.id, req.body);
+    if (r.body.ok) broadcast({ type: "work_update", topic: "work", time: new Date().toISOString() });
+    res.status(r.status).json(r.body);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 // ── App Builds: metadata plus on-demand PR patches ──────────────────────────
