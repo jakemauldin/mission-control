@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { C, inn } from "../lib/colors";
 import { badge } from "../lib/helpers";
 import { Section } from "../components/ui/Card";
+import { useWebSocket } from "../hooks/useWebSocket";
+import WorkList from "./WorkList";
 
 // Projects — per-project running to-do with progress dates (Jake, 2026-08-16).
 // Data: GET /api/projects (IN-FLIGHT.md headings + plate table, merged with
@@ -42,7 +44,26 @@ async function api(path, opts = {}) {
   return r.json();
 }
 
+// Two sub-tabs (Jake 2026-10-12, "this whole dashboard can be combined"): To-dos is the one live list from
+// /api/work, Projects keeps the per-project cards. The choice sticks per browser.
+const LS_SUB = "mc-projects-sub";
 export default function ProjectsView() {
+  const [sub, setSub] = useState(() => { try { return localStorage.getItem(LS_SUB) || "todos"; } catch { return "todos"; } });
+  const pick = (k) => { setSub(k); try { localStorage.setItem(LS_SUB, k); } catch { /* private window */ } };
+  return (
+    <Section title="Projects">
+      <div role="tablist" style={{ display: "flex", gap: 6, marginBottom: 14, borderBottom: `1px solid ${C.bdr}` }}>
+        {[["todos", "To-dos"], ["cards", "Projects"]].map(([k, l]) => (
+          <button key={k} role="tab" aria-selected={sub === k} onClick={() => pick(k)}
+            style={{ fontSize: 13, fontWeight: sub === k ? 700 : 500, padding: "8px 12px", background: "none", border: 0, borderBottom: `2px solid ${sub === k ? C.accent : "transparent"}`, color: sub === k ? C.bright : C.dim, cursor: "pointer", marginBottom: -1 }}>{l}</button>
+        ))}
+      </div>
+      {sub === "todos" ? <WorkList /> : <ProjectCards />}
+    </Section>
+  );
+}
+
+function ProjectCards() {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [filter, setFilter] = useState("open");
@@ -50,13 +71,10 @@ export default function ProjectsView() {
   const [newName, setNewName] = useState("");
 
   const load = useCallback(() => api("/api/projects").then((d) => { setData(d); setErr(null); }).catch((e) => setErr(e.message)), []);
-  useEffect(() => {
-    let alive = true;
-    const tick = () => api("/api/projects").then((d) => { if (alive) { setData(d); setErr(null); } }).catch((e) => alive && setErr(e.message));
-    const t = setInterval(tick, 30000);
-    Promise.resolve().then(tick); // first fetch off the synchronous effect body (react-hooks/set-state-in-effect)
-    return () => { alive = false; clearInterval(t); };
-  }, []);
+  useEffect(() => { Promise.resolve().then(load); }, [load]); // first fetch off the synchronous effect body (react-hooks/set-state-in-effect)
+  // projects.json and IN-FLIGHT.md changes arrive as work_update pushes, so no polling.
+  const ws = useWebSocket();
+  useEffect(() => { if (ws.lastMessage?.type === "work_update") load(); }, [ws.lastMessage, load]);
 
   // The 8/16 "Jake's plate" table card is retired: its open rows are tracked in TODO.md and the jake-todo file.
   const all = useMemo(() => (data?.projects || []).filter((p) => p.source !== "plate"), [data]);
@@ -76,7 +94,7 @@ export default function ProjectsView() {
   };
 
   return (
-    <Section title="Projects — running to-dos">
+    <>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 12 }}>
         {FILTERS.map(([k, l]) => (
           <button key={k} onClick={() => setFilter(k)} title={k === "stale" ? `open, but untouched for ${STALE_DAYS}+ days` : undefined}
@@ -102,7 +120,7 @@ export default function ProjectsView() {
       <div style={{ marginTop: 14, fontSize: 10, color: C.dim }}>
         store: <span className="mono">~/services/projects/projects.json</span> · IN-FLIGHT.md sections appear automatically.
       </div>
-    </Section>
+    </>
   );
 }
 
