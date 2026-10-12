@@ -1,4 +1,6 @@
-// RFI workspace, phase 2 interactivity (DESIGN.md §4): status changes, notes, draft-assist, live updates.
+// RFI workspace (DESIGN.md §4), grouped by where each item stands (rfi.json "stage") rather than by urgency.
+// Jake 2026-10-12: four colored status chips said how urgent an item was, not where it stood, and items settled on
+// calls looked the same as items nobody had answered. Each card now says in one line where it stands and who moves next.
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useParams, useLocation } from "react-router-dom";
 import { C, BRAND, STATUS } from "../lib/colors";
@@ -6,17 +8,14 @@ import { Section } from "../components/ui/Card";
 import { useWebSocket } from "../hooks/useWebSocket";
 import Md from "../components/Md";
 import { useOnFocus } from "../hooks/useOnFocus";
+import { STAGES, stageOf, stageLabel, rowStages } from "../lib/rfiStage";
 
-const ST = {
-  blocking: { label: "BLOCKING", color: "#f87171" },
-  before_submittal: { label: "BEFORE SUBMITTAL", color: "#fbbf24" },
-  cleanup: { label: "CLEANUP", color: "#94a3b8" },
-  closed: { label: "CLOSED", color: "#4ade80" },
-};
-const ST_KEYS = ["blocking", "before_submittal", "cleanup", "closed"];
-const KEY_TO_STATUS = { "1": "blocking", "2": "before_submittal", "3": "cleanup", "4": "closed" };
+// keys follow the section order on the page
+const KEY_TO_STAGE = { "1": "needs_answer", "2": "our_move", "3": "agreed", "4": "closed" };
 
 const md = (d) => { const m = String(d || "").match(/^\d{4}-(\d{2})-(\d{2})/); return m ? `${+m[1]}/${+m[2]}` : ""; };
+const daysSince = (d) => { const t = Date.parse(String(d || "").slice(0, 10) + "T12:00:00"); return Number.isFinite(t) ? Math.max(0, Math.floor((Date.now() - t) / 86400000)) : null; };
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 // The RFI list is hand-kept; the job log is where calls, emails and decisions land first. When the
 // log has dated entries newer than the list's "revised" date, the list may be behind (it sat at 9/17
@@ -35,6 +34,23 @@ function jobLabel({ jobId, dir, title }) {
   let name = String(title || "").split(/\s[—–-]\s/)[0].trim();
   if (!name || /^rfi/i.test(name)) name = String(dir || "").replace(/^\d+-/, "").split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   return `#${jobId}${name ? " " + name : ""}`;
+}
+
+// One line of counts for a job: the RFI index and the job page both use it. Only "blocking" gets a color.
+export function RfiCounts({ row }) {
+  const s = rowStages(row);
+  const parts = [
+    s.needs_answer && `${s.needs_answer} need${s.needs_answer === 1 ? "s" : ""} an answer`,
+    s.our_move && `${s.our_move} our move`,
+    s.agreed && `${s.agreed} agreed, waiting on drawings`,
+  ].filter(Boolean);
+  return (
+    <>
+      {s.blocking > 0 && <span style={{ color: STATUS.bad, fontSize: 12, fontWeight: 700 }}>{s.blocking} blocking</span>}
+      {parts.length > 0 && <span style={{ color: C.text, fontSize: 12 }}>{parts.join(" · ")}</span>}
+      <span style={{ color: C.dim, fontSize: 12 }}>{s.closed || 0} closed</span>
+    </>
+  );
 }
 
 export function RfiIndex() {
@@ -59,9 +75,7 @@ export function RfiIndex() {
             <div style={{ color: C.dim, fontSize: 12 }}>{j.title} · revised {j.revised || "?"}</div>
             <Drift jobLog={j.jobLog} revised={j.revised} />
           </div>
-          {j.counts.blocking > 0 && <span style={{ color: ST.blocking.color, fontSize: 12, fontWeight: 700 }}>{j.counts.blocking} blocking</span>}
-          {j.counts.before_submittal > 0 && <span style={{ color: ST.before_submittal.color, fontSize: 12 }}>{j.counts.before_submittal} pre-submittal</span>}
-          <span style={{ color: C.dim, fontSize: 12 }}>{j.counts.closed || 0} closed</span>
+          <RfiCounts row={j} />
         </Link>
       ))}
     </Section>
@@ -81,37 +95,55 @@ function draftReply(it) {
   return lines.join("\n");
 }
 
-function Item({ it, jobId, focused, onFocus, onPatch }) {
-  const [showNote, setShowNote] = useState(false);
+const btn = { fontSize: 11, padding: "3px 8px", borderRadius: 6, cursor: "pointer", background: "none", color: C.dim, border: `1px solid ${C.border}` };
+const field = { width: "100%", boxSizing: "border-box", background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, padding: 8, fontSize: 13, fontFamily: "inherit" };
+
+async function patch(jobId, itemId, body) {
+  const r = await fetch(`/api/rfis/${jobId}/items/${encodeURIComponent(itemId)}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  return r.ok;
+}
+
+function Item({ it, jobId, group, focused, onFocus, onPatch }) {
+  const stage = stageOf(it);
+  const closed = stage === "closed";
+  const [panel, setPanel] = useState(null); // details | note | edit | draft
   const [note, setNote] = useState("");
+  const [stands, setStands] = useState(it.stands || "");
+  const [who, setWho] = useState(it.next?.who || "");
+  const [what, setWhat] = useState(it.next?.what || "");
   const [saving, setSaving] = useState(false);
-  const [showDraft, setShowDraft] = useState(false);
-  const [showLog, setShowLog] = useState(false);
+  const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState(false);
-  const [noteErr, setNoteErr] = useState("");
   const log = it.log || [];
   const latest = log.length ? log[log.length - 1] : null;
-
-  const setStatus = async (status) => {
-    if (status === it.status) return;
-    const prevStatus = it.status;
-    onPatch(it.id, { status });
-    const r = await fetch(`/api/rfis/${jobId}/items/${it.id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }),
-    });
-    if (!r.ok) onPatch(it.id, { status: prevStatus }); // revert
+  const waited = it.next?.since ? daysSince(it.next.since) : null;
+  const toggle = p => {
+    setMsg("");
+    // the file can change under an open page (voice-dump, another tab), so the form starts from what is there now
+    if (p === "edit" && panel !== "edit") { setStands(it.stands || ""); setWho(it.next?.who || ""); setWhat(it.next?.what || ""); }
+    setPanel(v => (v === p ? null : p));
   };
 
-  const saveNote = async () => {
-    if (!note.trim()) return;
+  const setStage = async (next) => {
+    if (next === stage) return;
+    const prev = { stage: it.stage, status: it.status };
+    const status = next === "closed" ? "closed" : it.status === "closed" ? "before_submittal" : it.status;
+    onPatch(it.id, { stage: next, status });
+    if (!(await patch(jobId, it.id, { stage: next }))) { onPatch(it.id, prev); setMsg("Stage did not save. Try again."); }
+  };
+
+  const save = async (body, after) => {
     setSaving(true);
-    const r = await fetch(`/api/rfis/${jobId}/items/${it.id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ note }),
-    });
+    const ok = await patch(jobId, it.id, body);
     setSaving(false);
-    if (r.ok) { setNote(""); setNoteErr(""); setShowNote(false); onPatch(null, null, true); } // signal re-fetch
-    else setNoteErr("Note did not save. Try again.");
+    if (ok) { after?.(); setMsg(""); setPanel(null); onPatch(null, null, true); }
+    else setMsg("Did not save. Try again.");
   };
+
+  // "Latest" only when there is no stands line; once stands exists it already says where the item is
+  const fallback = !it.stands && latest ? `${md(latest.ts)}, ${latest.who}: ${String(latest.note).replace(/^\d{1,2}\/\d{1,2}:\s*/, "")}` : "";
 
   return (
     <div
@@ -119,89 +151,120 @@ function Item({ it, jobId, focused, onFocus, onPatch }) {
       tabIndex={0}
       onClick={() => onFocus(it.id)}
       onFocus={() => onFocus(it.id)}
-      onKeyDown={e => { if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return; if (KEY_TO_STATUS[e.key]) setStatus(KEY_TO_STATUS[e.key]); }}
+      onKeyDown={e => { if (/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(e.target.tagName)) return; if (KEY_TO_STAGE[e.key]) setStage(KEY_TO_STAGE[e.key]); }}
       style={{
         padding: "12px 10px", borderBottom: `1px solid ${C.border}`, outline: "none",
         background: focused ? "rgba(255,255,255,0.03)" : "transparent",
         borderLeft: focused ? `2px solid ${BRAND.focus}` : "2px solid transparent",
       }}
     >
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: "2px 10px" }}>
         <span style={{ fontFamily: "monospace", color: C.dim, fontSize: 12 }}>{it.id}</span>
-        <span style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>{it.title}</span>
-      </div>
-      {(it.owner || it.raised) && (
-        <div style={{ color: C.dim, fontSize: 11, marginTop: 3 }}>
-          {[it.owner && `Answer from ${it.owner}`, it.raised && `raised ${md(it.raised)}`, it.refs && `sheets ${it.refs}`].filter(Boolean).join(" · ")}
-        </div>
-      )}
-      {it.status === "closed" && it.resolution && <Md text={`**Resolved:** ${it.resolution}`} size={13} style={{ marginTop: 6, color: C.text }} />}
-      {it.concern && <Md text={it.concern} size={13} style={{ marginTop: 6, color: C.text }} />}
-      {it.our_read && <Md text={`**Our read:** ${it.our_read}`} size={12} style={{ marginTop: 6, color: C.dim }} />}
-      {it.ask && <Md text={`**Ask:** ${it.ask}`} size={13} style={{ marginTop: 6, color: BRAND.focus }} />}
-      {latest && <Md text={`**Latest (${md(latest.ts)}, ${latest.who}):** ${String(latest.note).replace(/^\d{1,2}\/\d{1,2}:\s*/, "")}`} size={12} style={{ marginTop: 6, color: C.text }} />}
-      {it.update && <Md text={`Update: ${it.update}`} size={12} style={{ marginTop: 6, color: C.dim }} />}
-
-      <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-        {ST_KEYS.map(k => (
-          <button key={k} onClick={e => { e.stopPropagation(); setStatus(k); }}
-            style={{
-              fontSize: 10, fontWeight: 700, letterSpacing: 0.5, padding: "3px 8px", borderRadius: 20,
-              cursor: "pointer", background: it.status === k ? ST[k].color : "transparent",
-              color: it.status === k ? "#0a0a0a" : ST[k].color, border: `1px solid ${ST[k].color}`,
-            }}>
-            {ST[k].label}
-          </button>
-        ))}
-        <button onClick={e => { e.stopPropagation(); setShowNote(v => !v); }}
-          style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, cursor: "pointer", background: "none", color: C.dim, border: `1px solid ${C.border}` }}>
-          note
-        </button>
-        <button onClick={e => { e.stopPropagation(); setShowDraft(v => !v); }}
-          style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, cursor: "pointer", background: "none", color: C.dim, border: `1px solid ${C.border}` }}>
-          draft reply
-        </button>
-        {log.length > 0 && (
-          <button onClick={e => { e.stopPropagation(); setShowLog(v => !v); }}
-            style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, cursor: "pointer", background: "none", color: C.dim, border: `1px solid ${C.border}` }}>
-            history ({log.length})
-          </button>
+        <span style={{ fontWeight: 600, fontSize: 14, flex: "1 1 200px", minWidth: 0 }}>{it.title}</span>
+        {!closed && it.status === "blocking" && (
+          <span title="Holds up the permit submittal" style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, color: STATUS.bad, border: `1px solid ${STATUS.bad}`, borderRadius: 4, padding: "1px 5px" }}>BLOCKING</span>
         )}
       </div>
 
-      {showNote && (
-        <div style={{ marginTop: 8 }} onClick={e => e.stopPropagation()}>
-          <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder="Add a note…"
-            style={{ width: "100%", background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, padding: 8, fontSize: 13, fontFamily: "inherit", resize: "vertical" }} />
-          <button onClick={saveNote} disabled={saving || !note.trim()}
-            style={{ marginTop: 6, fontSize: 12, padding: "4px 10px", borderRadius: 6, cursor: "pointer", background: "none", color: BRAND.link, border: `1px solid ${BRAND.border}` }}>
-            {saving ? "Saving…" : "Save"}
-          </button>
-          {noteErr && <span style={{ marginLeft: 10, fontSize: 12, color: "#f87171" }}>{noteErr}</span>}
+      {closed
+        ? it.resolution && <Md text={it.resolution} size={13} style={{ marginTop: 6, color: C.text }} />
+        : (it.stands || fallback) && <Md text={it.stands || fallback} size={13} style={{ marginTop: 6, color: C.text }} />}
+
+      {!closed && it.next?.who && (
+        <div style={{ marginTop: 6, fontSize: 12, color: BRAND.link }}>
+          Next: <b>{it.next.who}</b>{it.next.what ? `, ${it.next.what}` : ""}
+          {it.next.since && <span style={{ color: C.dim }}> · since {md(it.next.since)}{waited ? ` (${plural(waited, "day", "days")})` : ""}</span>}
         </div>
       )}
 
-      {showDraft && (
+      <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap", alignItems: "center" }} onClick={e => e.stopPropagation()}>
+        <select value={stage} onChange={e => setStage(e.target.value)} aria-label={`Stage for ${it.id}`}
+          title="Where this item stands. With the card selected, keys 1 to 4 move it."
+          style={{ fontSize: 12, padding: "3px 6px", borderRadius: 6, background: C.bg, color: C.text, border: `1px solid ${C.border}`, cursor: "pointer" }}>
+          {STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+        </select>
+        <button style={btn} onClick={() => toggle("details")}>{panel === "details" ? "Hide details" : "Details"}</button>
+        {!closed && <button style={btn} onClick={() => toggle("edit")}>Update where it stands</button>}
+        <button style={btn} onClick={() => toggle("note")}>Add note</button>
+        {!closed && <button style={btn} onClick={() => toggle("draft")}>Draft reply</button>}
+        {msg && <span style={{ fontSize: 12, color: STATUS.bad }}>{msg}</span>}
+      </div>
+
+      {panel === "details" && (
+        <div style={{ marginTop: 10, paddingLeft: 10, borderLeft: `2px solid ${C.border}` }}>
+          <div style={{ color: C.dim, fontSize: 11 }}>
+            {[group, it.owner && `answer from ${it.owner}`, it.raised && `raised ${md(it.raised)}`, it.refs && `sheets ${it.refs}`].filter(Boolean).join(" · ")}
+          </div>
+          {it.concern && <Md text={it.concern} size={13} style={{ marginTop: 6, color: C.text }} />}
+          {it.our_read && <Md text={`**Our read:** ${it.our_read}`} size={12} style={{ marginTop: 6, color: C.dim }} />}
+          {it.ask && <Md text={`**The ask:** ${it.ask}`} size={12} style={{ marginTop: 6, color: C.dim }} />}
+          {it.update && <Md text={`**Update:** ${it.update}`} size={12} style={{ marginTop: 6, color: C.dim }} />}
+          {log.length > 0 && (
+            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.dim }}>History</div>
+              {log.map((l, i) => (
+                <div key={i} style={{ fontSize: 12, color: C.dim }}>
+                  <span style={{ color: C.text }}>{md(l.ts)}</span> {l.who}: {String(l.note).replace(/^\d{1,2}\/\d{1,2}:\s*/, "")}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {panel === "edit" && (
+        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }} onClick={e => e.stopPropagation()}>
+          <label style={{ fontSize: 11, color: C.dim }}>Where it stands (one sentence)
+            <textarea value={stands} onChange={e => setStands(e.target.value)} rows={2} maxLength={400} style={{ ...field, resize: "vertical", marginTop: 3 }} />
+          </label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <label style={{ fontSize: 11, color: C.dim, flex: "1 1 140px" }}>Who moves next
+              <input value={who} onChange={e => setWho(e.target.value)} maxLength={120} style={{ ...field, marginTop: 3 }} />
+            </label>
+            <label style={{ fontSize: 11, color: C.dim, flex: "3 1 220px" }}>To do what
+              <input value={what} onChange={e => setWhat(e.target.value)} maxLength={300} style={{ ...field, marginTop: 3 }} />
+            </label>
+          </div>
+          <div>
+            <button disabled={saving} onClick={() => save({ stands: stands.trim(), next: who.trim() || what.trim() ? { who: who.trim(), what: what.trim() } : null })}
+              style={{ ...btn, fontSize: 12, padding: "4px 12px", color: BRAND.link, border: `1px solid ${BRAND.border}` }}>
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {panel === "note" && (
         <div style={{ marginTop: 8 }} onClick={e => e.stopPropagation()}>
-          <textarea readOnly value={draftReply(it)} rows={6}
-            style={{ width: "100%", background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, padding: 8, fontSize: 12, fontFamily: "inherit", resize: "vertical" }} />
+          <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder="What happened, who said it…" style={{ ...field, resize: "vertical" }} />
+          <button onClick={() => save({ note }, () => setNote(""))} disabled={saving || !note.trim()}
+            style={{ ...btn, marginTop: 6, fontSize: 12, padding: "4px 12px", color: BRAND.link, border: `1px solid ${BRAND.border}` }}>
+            {saving ? "Saving…" : "Save note"}
+          </button>
+        </div>
+      )}
+
+      {panel === "draft" && (
+        <div style={{ marginTop: 8 }} onClick={e => e.stopPropagation()}>
+          <textarea readOnly value={draftReply(it)} rows={6} style={{ ...field, fontSize: 12, resize: "vertical" }} />
           <button onClick={() => { navigator.clipboard?.writeText(draftReply(it)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => {}); }}
-            style={{ marginTop: 6, fontSize: 12, padding: "4px 12px", borderRadius: 6, cursor: "pointer", background: "none", color: BRAND.link, border: `1px solid ${BRAND.border}` }}>
+            style={{ ...btn, marginTop: 6, fontSize: 12, padding: "4px 12px", color: BRAND.link, border: `1px solid ${BRAND.border}` }}>
             {copied ? "Copied" : "Copy"}
           </button>
         </div>
       )}
-
-      {showLog && (
-        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
-          {log.map((l, i) => (
-            <div key={i} style={{ fontSize: 11, color: C.dim }}>
-              <span style={{ fontFamily: "monospace" }}>{l.ts}</span> — <b>{l.who}</b>: {l.note}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
+  );
+}
+
+function StageSection({ stage, rows, jobId, focusedId, onFocus, onPatch }) {
+  return (
+    <Section title={`${stage.label} (${rows.length})`}>
+      <div style={{ color: C.dim, fontSize: 12, margin: "-8px 0 6px" }}>{stage.blurb}</div>
+      {rows.map(({ it, group }) => (
+        <Item key={it.id} it={it} group={group} jobId={jobId} focused={focusedId === it.id} onFocus={onFocus} onPatch={onPatch} />
+      ))}
+    </Section>
   );
 }
 
@@ -223,7 +286,7 @@ export function RfiJob() {
     }).catch(e => setErr(String(e.message || e)));
   }, [jobId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { Promise.resolve().then(load); }, [load]);
   useOnFocus(load);
 
   useEffect(() => {
@@ -234,8 +297,8 @@ export function RfiJob() {
     if (lastMessage?.type === "rfi_update" && String(lastMessage.jobId) === String(jobId)) load();
   }, [lastMessage, jobId, load]);
 
-  // Closing an item moves it into the collapsed Closed section and unmounts what had focus,
-  // so the next keypress would go nowhere. Hand focus to the next open item instead.
+  // Moving an item to Closed unmounts it into the collapsed section, so the next keypress would go
+  // nowhere. Hand focus to the next open item instead. Other moves keep focus on the same card.
   const nextFocus = useRef(null);
   useEffect(() => {
     const id = nextFocus.current;
@@ -248,10 +311,13 @@ export function RfiJob() {
   // optimistic patch helper: patchItem(itemId, fields) mutates local state; patchItem(null,null,true) forces re-fetch
   const patchItem = (itemId, fields, forceReload) => {
     if (forceReload) { load(); return; }
-    if (fields?.status === "closed" && itemId === focusedId) {
-      const openIds = (rfi?.groups || []).flatMap(g => g.items || []).filter(it => it.status !== "closed").map(it => it.id);
-      const i = openIds.indexOf(itemId);
-      nextFocus.current = openIds[i + 1] || openIds[i - 1] || null;
+    const all = (rfi?.groups || []).flatMap(g => g.items || []);
+    if (itemId === focusedId) {
+      if (fields?.stage === "closed") {
+        const openIds = all.filter(it => stageOf(it) !== "closed").map(it => it.id);
+        const i = openIds.indexOf(itemId);
+        nextFocus.current = openIds[i + 1] || openIds[i - 1] || null;
+      } else nextFocus.current = itemId;
     }
     setRfi(prev => {
       if (!prev) return prev;
@@ -265,35 +331,49 @@ export function RfiJob() {
   if (!rfi) return <Section title="RFIs"><div style={{ color: C.dim }}>Loading…</div></Section>;
 
   const label = jobLabel(rfi);
-  const open = it => it.status !== "closed";
-  // a link to a closed item has to open the Closed section or there is nothing to scroll to
+  const rows = (rfi.groups || []).flatMap(g => (g.items || []).map(it => ({ it, group: g.name })));
+  const byStage = Object.fromEntries(STAGES.map(s => [s.key, []]));
+  for (const r of rows) byStage[stageOf(r.it)].push(r);
+  // blocking first inside a stage, then file order
+  for (const k of Object.keys(byStage)) byStage[k].sort((a, b) => (b.it.status === "blocking") - (a.it.status === "blocking"));
+  const openCount = rows.length - byStage.closed.length;
+  const blocking = rows.filter(r => stageOf(r.it) !== "closed" && r.it.status === "blocking").length;
+
   let hashId = hash ? hash.replace(/^#item-/, "") : "";
   try { hashId = decodeURIComponent(hashId); } catch { /* malformed escape: use it raw */ }
-  const hashClosed = (rfi.groups || []).some(g => (g.items || []).some(it => it.id === hashId && it.status === "closed"));
-  const closedItems = (rfi.groups || []).flatMap(g => (g.items || []).filter(it => !open(it)).map(it => ({ it, group: g.name })));
+  // a link to a closed item has to open the Closed section or there is nothing to scroll to
+  const hashClosed = byStage.closed.some(r => r.it.id === hashId);
+
+  const summary = [
+    `${openCount} open`,
+    byStage.needs_answer.length && `${byStage.needs_answer.length} need${byStage.needs_answer.length === 1 ? "s" : ""} an answer`,
+    byStage.our_move.length && `${byStage.our_move.length} our move`,
+    byStage.agreed.length && `${byStage.agreed.length} agreed and waiting on drawings`,
+  ].filter(Boolean);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div>
         <Link to="/rfis" style={{ color: BRAND.link, fontSize: 13, textDecoration: "none" }}>← all jobs</Link>
         <h2 style={{ margin: "6px 0 2px", fontSize: 18 }}>{label}</h2>
-        <div style={{ color: C.dim, fontSize: 12 }}>{rfi.address} · issued by {rfi.issued_by} · revised {rfi.revised}</div>
+        <div style={{ color: C.dim, fontSize: 12 }}>{[rfi.address, rfi.issued_by && `issued by ${rfi.issued_by}`, rfi.revised && `revised ${md(rfi.revised)}`].filter(Boolean).join(" · ")}</div>
+        <div style={{ color: C.text, fontSize: 13, marginTop: 6 }}>
+          {summary[0]}{summary.length > 1 ? `: ${summary.slice(1).join(", ")}.` : "."}
+          {blocking > 0 && <span style={{ color: STATUS.bad }}> {plural(blocking, "holds", "hold")} up the submittal.</span>}
+        </div>
         <Drift jobLog={rfi.jobLog} revised={rfi.revised} />
-        <div style={{ color: C.dim, fontSize: 11, marginTop: 2 }}>Click an item, then press 1 blocking, 2 before submittal, 3 cleanup, 4 closed.</div>
       </div>
-      {(rfi.groups || []).filter(g => (g.items || []).some(open)).map(g => (
-        <Section key={g.key} title={g.name}>
-          {g.contact && <div style={{ color: C.dim, fontSize: 12, margin: "-8px 0 8px", overflowWrap: "anywhere" }}>{g.contact}</div>}
-          {(g.items || []).filter(open).map(it => (
-            <Item key={it.id} it={it} jobId={jobId} focused={focusedId === it.id} onFocus={setFocusedId} onPatch={patchItem} />
-          ))}
-        </Section>
+
+      {STAGES.filter(s => s.key !== "closed" && byStage[s.key].length).map(s => (
+        <StageSection key={s.key} stage={s} rows={byStage[s.key]} jobId={jobId} focusedId={focusedId} onFocus={setFocusedId} onPatch={patchItem} />
       ))}
-      {closedItems.length > 0 && (
+
+      {byStage.closed.length > 0 && (
         <details open={closedOpen || hashClosed} onToggle={e => setClosedOpen(e.currentTarget.open)} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px" }}>
-          <summary style={{ cursor: "pointer", fontSize: 15, fontWeight: 700, color: C.bright }}>Closed ({closedItems.length})</summary>
+          <summary style={{ cursor: "pointer", fontSize: 15, fontWeight: 700, color: C.bright }}>{stageLabel("closed")} ({byStage.closed.length})</summary>
           <div style={{ marginTop: 8 }}>
-            {closedItems.map(({ it }) => (
-              <Item key={it.id} it={it} jobId={jobId} focused={focusedId === it.id} onFocus={setFocusedId} onPatch={patchItem} />
+            {byStage.closed.map(({ it, group }) => (
+              <Item key={it.id} it={it} group={group} jobId={jobId} focused={focusedId === it.id} onFocus={setFocusedId} onPatch={patchItem} />
             ))}
           </div>
         </details>
