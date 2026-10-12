@@ -15,6 +15,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { C, BRAND, STATUS, crd, inn } from "../lib/colors";
 import { btnS } from "../lib/helpers";
 import { Section } from "../components/ui/Card";
+import { useOnFocus } from "../hooks/useOnFocus";
 
 const MONO = "'IBM Plex Mono', ui-monospace, monospace";
 const TABS = [
@@ -1099,6 +1100,8 @@ export default function AccessView() {
   const [expanded, setExpanded] = useState(() => new Set());
   const stripRef = useRef(null);
   const ix = useMemo(() => buildIndex(data), [data]);
+  // access-map.py has no schedule (audit 2026-10-12: the page sat 8 days old and looked current).
+  const old = has(data?.generatedAt) && now - Date.parse(data.generatedAt) > 864e5;
 
   const load = useCallback(async () => {
     try {
@@ -1120,6 +1123,7 @@ export default function AccessView() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useOnFocus(load);
   // A refresh may already be running (started from another tab or before a reload).
   useEffect(() => { fetchStatus().then((s) => { if (s) setStatus(s); }); }, [fetchStatus]);
   // While running: poll every 3 s; when it stops, pull the new data.
@@ -1193,7 +1197,8 @@ export default function AccessView() {
           {data?.sample && <div style={{ ...noteS, border: "1px solid rgba(240,179,74,0.4)", color: STATUS.warn, marginBottom: 10 }}>Showing sample data: run the collector</div>}
           {data && (
             <div style={{ fontSize: 12, color: C.dim, marginBottom: 10 }}>
-              Generated <b style={{ color: C.text }}>{fmtRel(data.generatedAt, now) || "at an unknown time"}</b>{has(data.generatedAt) && <> · {fmtAbs(data.generatedAt)}</>}
+              Generated <b style={{ color: old ? STATUS.warn : C.text }}>{fmtRel(data.generatedAt, now) || "at an unknown time"}</b>{has(data.generatedAt) && <> · {fmtAbs(data.generatedAt)}</>}
+              {old && <span style={{ color: STATUS.warn }}> · over a day old, nothing refreshes it on a schedule. Press Refresh for a current copy</span>}
               {has(data.host) && <> · host {String(data.host)}</>} · {data.probed ? "live checks ran" : "live checks not run"}
             </div>
           )}

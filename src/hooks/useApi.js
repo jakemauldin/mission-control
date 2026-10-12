@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useOnFocus } from "./useOnFocus";
 
 export function useApi(url, fallbackData = null, { interval = 0, enabled = true } = {}) {
   const [data, setData] = useState(fallbackData);
@@ -44,6 +45,8 @@ export function useApi(url, fallbackData = null, { interval = 0, enabled = true 
     }
     return () => abortRef.current?.abort();
   }, [fetchData, interval, enabled]);
+
+  useOnFocus(fetchData);
 
   return { data, loading, error, live, refetch: fetchData };
 }

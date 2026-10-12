@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { C, BRAND } from "../lib/colors";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { Section } from "../components/ui/Card";
+import { useOnFocus } from "../hooks/useOnFocus";
 
 const RFI_ST = {
   blocking: { label: "blocking", color: "#f87171" },
@@ -37,6 +38,7 @@ export default function JobDetail() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+  useOnFocus(load);
   const ws = useWebSocket();
   useEffect(() => {
     const t = ws.lastMessage?.type;

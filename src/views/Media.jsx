@@ -1,10 +1,11 @@
 // Media workspace (DESIGN.md §3). Phase 2 adds generation dispatch: the UI collects
 // INTENT only — the prompt itself is authored by Fable in Jake's session, never here.
 import { useState, useEffect, useCallback } from "react";
-import { C, BRAND, BTN } from "../lib/colors";
+import { C, BRAND, BTN, STATUS } from "../lib/colors";
 import { Section } from "../components/ui/Card";
 import { Link } from "react-router-dom";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { useOnFocus } from "../hooks/useOnFocus";
 
 const GALLERY = "http://100.92.25.23:3251";
 // Same tab -> mode pairing the gallery uses for its own nav links.
@@ -25,11 +26,12 @@ export default function Media() {
     fetch("/api/media/generate").then(r => r.json()).then(d => setQueue(d.data || [])).catch(() => {});
     fetch("/api/media/posts").then(r => r.json()).then(d => setPosts(d.data || [])).catch(() => {});
   }, []);
-  useEffect(() => {
+  const loadCounts = useCallback(() => {
     fetch("/api/media/counts").then(r => r.json()).then(d => setCounts(d.data)).catch(() => {});
     fetch("/api/media/recent?bucket=postable&n=36").then(r => r.json()).then(d => setRecent(d.data || [])).catch(() => {});
-    loadQueue();
-  }, [loadQueue]);
+  }, []);
+  useEffect(() => { loadCounts(); loadQueue(); }, [loadCounts, loadQueue]);
+  useOnFocus(() => { loadCounts(); loadQueue(); });
   useEffect(() => { if (ws.lastMessage?.type === "gen_update") loadQueue(); }, [ws.lastMessage, loadQueue]);
 
   const submit = async (e) => {
@@ -59,6 +61,11 @@ export default function Media() {
         {cell("RECORDS", counts?.records, false, "records")}
         {cell("TRASH", counts?.trash, false, "trash")}
       </div>
+      {counts?.intake > 0 && (
+        <div style={{ fontSize: 12, color: STATUS.warn, marginTop: -6 }}>
+          {counts.intake} phone upload{counts.intake === 1 ? " is" : "s are"} sitting in phone-intake and not filed into the photo library, so the grader and these counts don't see {counts.intake === 1 ? "it" : "them"}.
+        </div>
+      )}
 
       <Section title="Grade & pick">
         <Link to="/media/post" style={{ display: "inline-block", padding: "10px 18px", background: "none", border: `1px solid ${BRAND.border}`, color: BRAND.focus, borderRadius: 8, fontWeight: 600, fontSize: 14, textDecoration: "none", marginRight: 10 }}>

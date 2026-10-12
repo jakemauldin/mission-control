@@ -1,7 +1,7 @@
 // Mission Control shell (DESIGN.md §1). react-router owns the URL. Primary nav is a
 // top bar on desktop and a bottom tab bar on phone; everything else is behind the ⋯
 // menu. Systems is also reached through the header status dot.
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useSearchParams, useLocation } from "react-router-dom";
 import { C, BRAND } from "./lib/colors";
 import { useJobs, useHealth } from "./hooks/useLiveData";
@@ -13,6 +13,8 @@ import HeaderSlot from "./components/HeaderSlot";
 import GlobalLayer from "./components/GlobalLayer";
 import { PresenceProvider } from "./hooks/usePresence";
 import NavIcon from "./components/NavIcons";
+import BuildBanner from "./components/BuildBanner";
+import { useOnFocus } from "./hooks/useOnFocus";
 
 import Brief from "./views/Brief";
 import Login from "./views/Login";
@@ -113,6 +115,7 @@ function Shell() {
           <div style={{ flex: "none", display: "flex", alignItems: "center" }}><HeaderSlot /></div>
           <MoreMenu items={NAV.more} />
         </header>
+        <BuildBanner />
 
         <Routes>
           <Route path="/" element={<BriefRoute />} />
@@ -165,7 +168,9 @@ function SystemsWrap({ healthData }) {
 }
 function ExpertiseWrap() {
   const [exp, setExp] = useState({ live: false, data: null });
-  useEffect(() => { fetch("/api/expertise").then(r => r.json()).then(d => setExp({ live: d.ok, data: d.data })).catch(() => {}); }, []);
+  const load = useCallback(() => fetch("/api/expertise").then(r => r.json()).then(d => setExp({ live: d.ok, data: d.data })).catch(() => {}), []);
+  useEffect(() => { load(); }, [load]);
+  useOnFocus(load);
   return <ExpertiseView expertise={exp} />;
 }
 
