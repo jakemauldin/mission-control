@@ -1,10 +1,11 @@
 // RFI workspace, phase 2 interactivity (DESIGN.md §4): status changes, notes, draft-assist, live updates.
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useParams, useLocation } from "react-router-dom";
-import { C, BRAND } from "../lib/colors";
+import { C, BRAND, STATUS } from "../lib/colors";
 import { Section } from "../components/ui/Card";
 import { useWebSocket } from "../hooks/useWebSocket";
 import Md from "../components/Md";
+import { useOnFocus } from "../hooks/useOnFocus";
 
 const ST = {
   blocking: { label: "BLOCKING", color: "#f87171" },
@@ -15,6 +16,20 @@ const ST = {
 const ST_KEYS = ["blocking", "before_submittal", "cleanup", "closed"];
 const KEY_TO_STATUS = { "1": "blocking", "2": "before_submittal", "3": "cleanup", "4": "closed" };
 
+const md = (d) => { const m = String(d || "").match(/^\d{4}-(\d{2})-(\d{2})/); return m ? `${+m[1]}/${+m[2]}` : ""; };
+
+// The RFI list is hand-kept; the job log is where calls, emails and decisions land first. When the
+// log has dated entries newer than the list's "revised" date, the list may be behind (it sat at 9/17
+// while #119 ran to 10/9 and nobody could tell from this page). The server counts them (jobLog).
+function Drift({ jobLog, revised }) {
+  if (!jobLog?.after) return null;
+  return (
+    <div style={{ color: STATUS.warn, fontSize: 12, marginTop: 4 }}>
+      List last updated {md(revised) || "?"}. The job log has {jobLog.after} newer entr{jobLog.after === 1 ? "y" : "ies"} (latest {md(jobLog.latest)}), so some items may be out of date.
+    </div>
+  );
+}
+
 // "#119 Thomas Hearth": name from the RFI title ("Thomas Hearth — RFI Log"), else the folder slug.
 function jobLabel({ jobId, dir, title }) {
   let name = String(title || "").split(/\s[—–-]\s/)[0].trim();
@@ -24,16 +39,25 @@ function jobLabel({ jobId, dir, title }) {
 
 export function RfiIndex() {
   const [jobs, setJobs] = useState(null);
-  useEffect(() => { fetch("/api/rfis").then(r => r.json()).then(d => setJobs(d.data)).catch(() => setJobs([])); }, []);
-  if (!jobs) return <Section title="RFIs"><div style={{ color: C.dim }}>Loading…</div></Section>;
+  const [err, setErr] = useState(null);
+  const load = useCallback(() => fetch("/api/rfis")
+    .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+    .then(d => { if (d.ok === false) throw new Error(d.error || "error"); setJobs(d.data || []); setErr(null); })
+    .catch(e => setErr(String(e.message || e))), []);
+  useEffect(() => { Promise.resolve().then(load); }, [load]);
+  const { lastMessage } = useWebSocket();
+  useEffect(() => { if (lastMessage?.type === "rfi_update") load(); }, [lastMessage, load]);
+  useOnFocus(load);
+  if (!jobs) return <Section title="RFIs"><div style={{ color: C.dim }}>{err ? `Could not load the RFI list (${err}).` : "Loading…"}</div></Section>;
   return (
     <Section title="RFIs by job">
       {jobs.length === 0 && <div style={{ color: C.dim }}>No job has an RFI log yet.</div>}
       {jobs.map(j => (
-        <Link key={j.dir} to={`/rfis/${j.jobId}`} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: `1px solid ${C.border}`, textDecoration: "none", color: C.text }}>
-          <div style={{ flex: 1 }}>
+        <Link key={j.dir} to={`/rfis/${j.jobId}`} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px 12px", padding: "12px 0", borderBottom: `1px solid ${C.border}`, textDecoration: "none", color: C.text }}>
+          <div style={{ flex: "1 1 240px", minWidth: 0 }}>
             <div style={{ fontWeight: 600, fontSize: 14 }}>{jobLabel(j)}</div>
             <div style={{ color: C.dim, fontSize: 12 }}>{j.title} · revised {j.revised || "?"}</div>
+            <Drift jobLog={j.jobLog} revised={j.revised} />
           </div>
           {j.counts.blocking > 0 && <span style={{ color: ST.blocking.color, fontSize: 12, fontWeight: 700 }}>{j.counts.blocking} blocking</span>}
           {j.counts.before_submittal > 0 && <span style={{ color: ST.before_submittal.color, fontSize: 12 }}>{j.counts.before_submittal} pre-submittal</span>}
@@ -66,6 +90,7 @@ function Item({ it, jobId, focused, onFocus, onPatch }) {
   const [copied, setCopied] = useState(false);
   const [noteErr, setNoteErr] = useState("");
   const log = it.log || [];
+  const latest = log.length ? log[log.length - 1] : null;
 
   const setStatus = async (status) => {
     if (status === it.status) return;
@@ -105,8 +130,16 @@ function Item({ it, jobId, focused, onFocus, onPatch }) {
         <span style={{ fontFamily: "monospace", color: C.dim, fontSize: 12 }}>{it.id}</span>
         <span style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>{it.title}</span>
       </div>
+      {(it.owner || it.raised) && (
+        <div style={{ color: C.dim, fontSize: 11, marginTop: 3 }}>
+          {[it.owner && `Answer from ${it.owner}`, it.raised && `raised ${md(it.raised)}`, it.refs && `sheets ${it.refs}`].filter(Boolean).join(" · ")}
+        </div>
+      )}
+      {it.status === "closed" && it.resolution && <Md text={`**Resolved:** ${it.resolution}`} size={13} style={{ marginTop: 6, color: C.text }} />}
       {it.concern && <Md text={it.concern} size={13} style={{ marginTop: 6, color: C.text }} />}
+      {it.our_read && <Md text={`**Our read:** ${it.our_read}`} size={12} style={{ marginTop: 6, color: C.dim }} />}
       {it.ask && <Md text={`**Ask:** ${it.ask}`} size={13} style={{ marginTop: 6, color: BRAND.focus }} />}
+      {latest && <Md text={`**Latest (${md(latest.ts)}, ${latest.who}):** ${String(latest.note).replace(/^\d{1,2}\/\d{1,2}:\s*/, "")}`} size={12} style={{ marginTop: 6, color: C.text }} />}
       {it.update && <Md text={`Update: ${it.update}`} size={12} style={{ marginTop: 6, color: C.dim }} />}
 
       <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
@@ -191,6 +224,7 @@ export function RfiJob() {
   }, [jobId]);
 
   useEffect(() => { load(); }, [load]);
+  useOnFocus(load);
 
   useEffect(() => {
     if (rfi && hash) setTimeout(() => { try { document.querySelector(hash)?.scrollIntoView({ block: "center" }); } catch { /* bad hash */ } }, 100);
@@ -243,6 +277,7 @@ export function RfiJob() {
         <Link to="/rfis" style={{ color: BRAND.link, fontSize: 13, textDecoration: "none" }}>← all jobs</Link>
         <h2 style={{ margin: "6px 0 2px", fontSize: 18 }}>{label}</h2>
         <div style={{ color: C.dim, fontSize: 12 }}>{rfi.address} · issued by {rfi.issued_by} · revised {rfi.revised}</div>
+        <Drift jobLog={rfi.jobLog} revised={rfi.revised} />
         <div style={{ color: C.dim, fontSize: 11, marginTop: 2 }}>Click an item, then press 1 blocking, 2 before submittal, 3 cleanup, 4 closed.</div>
       </div>
       {(rfi.groups || []).filter(g => (g.items || []).some(open)).map(g => (
