@@ -61,3 +61,11 @@ h1,h2,h3,h4,h5,h6, nav, button { font-family: 'Poppins', Helvetica, Arial, sans-
 @media (min-width: 768px) { .rc-shell { padding: 16px 18px; } }
 .rc-tabbar { display: grid; }
 @media (min-width: 768px) { .rc-tabbar { display: none; } }
+
+/* Apps tab (src/views/AppBuilds.jsx): six stages in a row, three on a phone; PR and branch rows put the chip on its own line */
+.rc-apps-stages { grid-template-columns: repeat(6, 1fr); }
+@media (max-width: 720px) {
+  .rc-apps-stages { grid-template-columns: repeat(3, 1fr); }
+  .rc-apps-rowh { grid-template-columns: 1fr auto !important; }
+  .rc-apps-rowh > :first-child { grid-column: 1 / -1; justify-self: start; }
+}
