@@ -11,6 +11,20 @@ import { Section } from "../components/ui/Card";
 const STATE_COLOR = { active: "#2A9D8F", partial: "#E8B22A", waiting: "#60A5FA", blocked: "#EF4444", done: "#94A3B8", note: "#64748B", info: "#64748B", paused: "#64748B" };
 const STATE_LABEL = { active: "Active", partial: "Partial", waiting: "Waiting", blocked: "Open / blocked", done: "Done", note: "Note", info: "Info", paused: "Paused" };
 const OPEN_STATES = new Set(["active", "partial", "waiting", "blocked"]);
+// Open vs Stale (Jake 2026-10-12: the tabs "are all practically staying the same"). Nearly every card had an
+// open status, so Open showed 18 of 19. Open now means an open status touched in the last 3 weeks; the rest of
+// the open cards go under Stale, where they can be closed out or picked back up.
+const STALE_DAYS = 21;
+const ageDays = (d) => (d ? (Date.now() - new Date(String(d).slice(0, 10) + "T12:00:00").getTime()) / 86400000 : Infinity);
+const isOpen = (p) => OPEN_STATES.has(p.status) && ageDays(p.lastTouched) < STALE_DAYS;
+const isStale = (p) => OPEN_STATES.has(p.status) && ageDays(p.lastTouched) >= STALE_DAYS;
+const FILTERS = [
+  ["open", "Open", isOpen],
+  ["todo", "Has to-dos", (p) => (p.todos || []).some((t) => !t.done)],
+  ["manual", "Mine", (p) => p.source === "manual"],
+  ["stale", "Stale", isStale],
+  ["all", "Everything", () => true],
+];
 
 const fmtDate = (d) => {
   if (!d) return "—";
@@ -34,7 +48,6 @@ export default function ProjectsView() {
   const [filter, setFilter] = useState("open");
   const [q, setQ] = useState("");
   const [newName, setNewName] = useState("");
-  const [showAll, setShowAll] = useState(false);
 
   const load = useCallback(() => api("/api/projects").then((d) => { setData(d); setErr(null); }).catch((e) => setErr(e.message)), []);
   useEffect(() => {
@@ -45,17 +58,16 @@ export default function ProjectsView() {
     return () => { alive = false; clearInterval(t); };
   }, []);
 
+  // The 8/16 "Jake's plate" table card is retired: its open rows are tracked in TODO.md and the jake-todo file.
+  const all = useMemo(() => (data?.projects || []).filter((p) => p.source !== "plate"), [data]);
+  const counts = useMemo(() => Object.fromEntries(FILTERS.map(([k, , fn]) => [k, all.filter(fn).length])), [all]);
   const projects = useMemo(() => {
-    let list = data?.projects || [];
-    if (filter === "open") list = list.filter((p) => OPEN_STATES.has(p.status) || p.source === "manual" || p.source === "plate");
-    if (filter === "manual") list = list.filter((p) => p.source === "manual" || p.source === "plate");
-    if (filter === "todo") list = list.filter((p) => (p.todos || []).some((t) => !t.done));
+    let list = all.filter(FILTERS.find(([k]) => k === filter)[2]);
     if (q.trim()) { const s = q.toLowerCase(); list = list.filter((p) => (p.name + " " + (p.inflight?.title || "") + " " + (p.todos || []).map((t) => t.text).join(" ")).toLowerCase().includes(s)); }
     return list;
-  }, [data, filter, q]);
-  const visible = showAll ? projects : projects.slice(0, 18);
+  }, [all, filter, q]);
 
-  const openTodos = (data?.projects || []).reduce((n, p) => n + (p.todos || []).filter((t) => !t.done).length, 0);
+  const openTodos = all.reduce((n, p) => n + (p.todos || []).filter((t) => !t.done).length, 0);
 
   const createProject = async () => {
     const name = newName.trim(); if (!name) return;
@@ -66,12 +78,15 @@ export default function ProjectsView() {
   return (
     <Section title="Projects — running to-dos">
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 12 }}>
-        {[["open", "Open"], ["todo", "Has to-dos"], ["manual", "Mine"], ["all", "Everything"]].map(([k, l]) => (
-          <button key={k} onClick={() => setFilter(k)} style={{ ...chip, background: filter === k ? "rgba(232,114,42,0.18)" : "rgba(255,255,255,0.04)", borderColor: filter === k ? C.accent : C.bdr, color: filter === k ? C.bright : C.text }}>{l}</button>
+        {FILTERS.map(([k, l]) => (
+          <button key={k} onClick={() => setFilter(k)} title={k === "stale" ? `open, but untouched for ${STALE_DAYS}+ days` : undefined}
+            style={{ ...chip, background: filter === k ? "rgba(232,114,42,0.18)" : "rgba(255,255,255,0.04)", borderColor: filter === k ? C.accent : C.bdr, color: filter === k ? C.bright : C.text }}>
+            {l} <span style={{ color: C.dim, marginLeft: 2 }}>{data ? counts[k] : ""}</span>
+          </button>
         ))}
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="search…" style={{ ...input, minWidth: 140, flex: "1 1 140px" }} />
         <span style={{ fontSize: 11, color: C.dim, marginLeft: "auto" }}>
-          {data ? `${data.counts.total} projects · ${openTodos} open to-dos · store ${data.updated ? fmtDate(data.updated) : "empty"}` : err ? `error: ${err}` : "loading…"}
+          {data ? `${all.length} projects · ${openTodos} open to-dos · store ${data.updated ? fmtDate(data.updated) : "empty"}` : err ? `error: ${err}` : "loading…"}
         </span>
       </div>
 
@@ -81,13 +96,11 @@ export default function ProjectsView() {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 10 }}>
-        {visible.map((p) => <ProjectCard key={`${p.source}:${p.id}:${p.progressNote || ""}`} p={p} reload={load} />)}
+        {projects.map((p) => <ProjectCard key={`${p.source}:${p.id}:${p.progressNote || ""}`} p={p} reload={load} />)}
       </div>
-      {projects.length > visible.length && (
-        <button onClick={() => setShowAll(true)} style={{ ...chip, marginTop: 12 }}>show all {projects.length}</button>
-      )}
+      {data && projects.length === 0 && <div style={{ fontSize: 12, color: C.dim, padding: "8px 2px" }}>Nothing here.</div>}
       <div style={{ marginTop: 14, fontSize: 10, color: C.dim }}>
-        Agents/CLI: <span className="mono">~/Dashboard/mission-control/scripts/todo.sh add "&lt;project&gt;" "&lt;to-do&gt;"</span> · store: <span className="mono">~/services/projects/projects.json</span> · IN-FLIGHT.md sections appear automatically.
+        store: <span className="mono">~/services/projects/projects.json</span> · IN-FLIGHT.md sections appear automatically.
       </div>
     </Section>
   );
