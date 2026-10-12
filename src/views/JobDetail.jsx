@@ -5,13 +5,7 @@ import { C, BRAND } from "../lib/colors";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { Section } from "../components/ui/Card";
 import { useOnFocus } from "../hooks/useOnFocus";
-
-const RFI_ST = {
-  blocking: { label: "blocking", color: "#f87171" },
-  before_submittal: { label: "pre-submittal", color: "#fbbf24" },
-  cleanup: { label: "cleanup", color: C.dim },
-  closed: { label: "closed", color: "#4ade80" },
-};
+import { RfiCounts } from "./RFIs";
 
 const PAYAPP_ST = {
   draft: { label: "draft", color: C.dim },
@@ -77,13 +71,7 @@ export default function JobDetail() {
               <div style={{ fontWeight: 600, fontSize: 14 }}>{rfi.title}</div>
               <div style={{ color: C.dim, fontSize: 12 }}>revised {rfi.revised || "?"}</div>
             </div>
-            {rfi.counts?.blocking > 0 && (
-              <span style={{ color: RFI_ST.blocking.color, fontSize: 12, fontWeight: 700 }}>{rfi.counts.blocking} blocking</span>
-            )}
-            {rfi.counts?.before_submittal > 0 && (
-              <span style={{ color: RFI_ST.before_submittal.color, fontSize: 12 }}>{rfi.counts.before_submittal} pre-submittal</span>
-            )}
-            <span style={{ color: C.dim, fontSize: 12 }}>{rfi.counts?.closed || 0} closed</span>
+            <RfiCounts row={rfi} />
           </Link>
         ) : (
           <div style={{ color: C.dim }}>No RFI log for this job yet.</div>
