@@ -126,13 +126,13 @@ export function parseInflight() {
 // notes (version bumps, campaign builds, ops recaps), not projects with their
 // own running to-do list. Only import a heading as an auto project card when
 // it both (a) carries a real status emoji and (b) names an actual JobTread
-// job — Jake's own convention is "(JT #NNN)" or "(#NNN)" in the title,
+// job — Jake's own convention is "(JT #NNN)", "JT #NNN" or "(#NNN)" in the title,
 // occasionally "Job NNN". Everything else stays visible in IN-FLIGHT.md (that
 // file is untouched) but doesn't spawn a card, so ~83 changelog headings stop
 // drowning the handful of real jobs on the Projects tab.
 const PROJECT_EMOJI = new Set(["🔴", "🟡", "🟢", "✅"]);
-const JOB_REF_RE = /\(\s*(?:JT\s*)?#\d+\s*\)|\bJob\s+\d{2,4}\b/i;
-function looksLikeProject(h) {
+const JOB_REF_RE = /\(\s*(?:JT\s*)?#\d+\s*\)|\bJob\s+\d{2,4}\b|\bJT\s*#\d+\b/i;
+export function looksLikeProject(h) {
   return !!h.emoji && PROJECT_EMOJI.has(h.emoji) && JOB_REF_RE.test(h.title);
 }
 

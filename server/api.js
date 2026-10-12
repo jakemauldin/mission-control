@@ -2,7 +2,7 @@ import express from "express";
 import { execFile } from "child_process";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
-import { readdirSync, readFileSync, existsSync } from "fs";
+import { readdirSync, readFileSync, existsSync, statSync } from "fs";
 import { join, dirname } from "path";
 import { requireAuth, checkPassphrase, makeSessionCookie, clearSessionCookie, validSession } from "./lib/auth.js";
 import { buildBrief, snoozeItem, invalidateBrief, unsnoozeItem, listSnoozed, decideNeed } from "./lib/brief.js";
@@ -46,6 +46,8 @@ dotenv.config({ path: join(import.meta.dirname, "..", ".env") });
 const app = express();
 const server = createServer(app);
 const PORT = process.env.PORT || 3080;
+const DIST = join(import.meta.dirname, "..", "dist");
+const buildId = () => { try { return String(statSync(join(DIST, "index.html")).mtimeMs); } catch { return null; } };
 
 // A whole SKILL.md rides in the body (skill-creator is 33 KB; the lib caps at 512 KB), so
 // /api/skills gets a wider parser first; the default 100 KB one below then sees the body
@@ -84,6 +86,11 @@ app.get("/internal/ring/:id", loopbackOnly, (req, res) => {
 });
 
 app.use("/api", requireAuth);
+
+app.get("/api/build", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ ok: true, build: buildId() });
+});
 
 // Sign status for the header pill. voice-dump health is cached 30 s so polling stays cheap.
 let vdHealth = { at: 0, up: false };
@@ -687,6 +694,19 @@ function broadcast(message) {
 }
 
 // ── chokidar watchers → topic-tagged pushes (DESIGN.md §2/§4) ────────────────
+try {
+  let debounce = null;
+  chokidar.watch(join(DIST, "index.html"), { ignoreInitial: true, awaitWriteFinish: { stabilityThreshold: 400 } })
+    .on("all", (ev) => {
+      if (!["add", "change"].includes(ev)) return;
+      clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        const build = buildId();
+        if (build !== null) broadcast({ type: "build_update", topic: "build", build, time: new Date().toISOString() });
+      }, 2000);
+    });
+} catch (e) { console.warn("watcher setup failed:", e.message); }
+
 // A change to any job's rfi.json — from the dashboard, Jake's editor, or the
 // voice-dump merge — pushes rfi:<jobId> and refreshes the Brief. Debounced per file.
 try {
@@ -892,7 +912,6 @@ app.get("/api/access-map/status", (_req, res) => {
 });
 
 // ── Static build (DESIGN.md §7: one process serves dist/ + /api + /ws) ──
-const DIST = join(import.meta.dirname, "..", "dist");
 if (existsSync(DIST)) {
   // Hashed assets cache forever, index.html never: each build deletes the old bundle, so a
   // cached index.html pointing at a dead hash used to get the SPA fallback's HTML back AS

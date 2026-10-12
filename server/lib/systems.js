@@ -35,7 +35,7 @@ function backupCards() {
   const defs = [
     { name: "OpenClaw volume backup", path: "/var/log/openclaw-backup.log", pat: /Upload successful/, maxH: 26 },
     { name: "Services host backup", path: join(LOGS, "services-backup.log"), pat: /Backup Complete/, maxH: 26 },
-    { name: "TC databases backup", path: join(LOGS, "tc-backup.log"), pat: /TC Database Backup/, maxH: 26 },
+    { name: "TC databases backup", path: join(LOGS, "tc-backup.log"), pat: /Upload successful/, maxH: 26 },
     { name: "Media mirror (Spaces)", path: join(LOGS, "media-mirror.log"), pat: /Media mirror complete/, maxH: 192 },
   ];
   return defs.map(d => {
