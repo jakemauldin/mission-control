@@ -14,7 +14,13 @@ import { STAGES, stageOf, stageLabel, rowStages } from "../lib/rfiStage";
 const KEY_TO_STAGE = { "1": "needs_answer", "2": "our_move", "3": "agreed", "4": "closed" };
 
 const md = (d) => { const m = String(d || "").match(/^\d{4}-(\d{2})-(\d{2})/); return m ? `${+m[1]}/${+m[2]}` : ""; };
-const daysSince = (d) => { const t = Date.parse(String(d || "").slice(0, 10) + "T12:00:00"); return Number.isFinite(t) ? Math.max(0, Math.floor((Date.now() - t) / 86400000)) : null; };
+// calendar days, both ends at local midnight: "since 10/6" on 10/12 is 6 days whatever the hour
+const daysSince = (d) => {
+  const t = Date.parse(String(d || "").slice(0, 10) + "T00:00:00");
+  if (!Number.isFinite(t)) return null;
+  const n = new Date();
+  return Math.max(0, Math.round((new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime() - t) / 86400000));
+};
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 // The RFI list is hand-kept; the job log is where calls, emails and decisions land first. When the
