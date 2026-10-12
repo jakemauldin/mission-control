@@ -6,10 +6,35 @@
 // photos; _grades.json is keyed by file path and holds all ~13.7K graded photos. The
 // gallery merges them, hand-catalogued rows winning. We merge the same way so counts
 // and the picker agree with what he sees in the gallery.
-import { readFileSync, statSync, existsSync } from "fs";
+import { readFileSync, readdirSync, statSync, existsSync } from "fs";
 import { join } from "path";
 
 const MEDIA = process.env.MC_MEDIA_DIR || "/mnt/rc_media/media-library/rising-creek";
+
+let intakeCache = { at: 0, data: null };
+export function intakeCount({ fresh = false } = {}) {
+  if (!fresh && intakeCache.data && Date.now() - intakeCache.at < 300000) return intakeCache.data;
+  let files = 0, oldest = null, newest = null;
+  function walk(dir) {
+    let entries = [];
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.isFile()) {
+        const time = statSync(path).mtimeMs;
+        files++;
+        if (oldest === null || time < oldest) oldest = time;
+        if (newest === null || time > newest) newest = time;
+      }
+    }
+  }
+  walk(join(MEDIA, "phone-intake"));
+  const data = { files, oldest: oldest === null ? null : new Date(oldest).toISOString(), newest: newest === null ? null : new Date(newest).toISOString() };
+  intakeCache = { at: Date.now(), data };
+  return data;
+}
 
 const readJson = (f, fallback) => { try { return JSON.parse(readFileSync(join(MEDIA, f), "utf-8")); } catch { return fallback; } };
 const readList = (f) => { const d = readJson(f, []); return Array.isArray(d) ? d : Object.keys(d || {}); };
@@ -76,6 +101,7 @@ export function mediaCounts() {
   return {
     catalogued: rows.size,
     undecided,
+    intake: intakeCount().files,
     ...Object.fromEntries(Object.entries(buckets).map(([k, v]) => [k, v.length])),
   };
 }

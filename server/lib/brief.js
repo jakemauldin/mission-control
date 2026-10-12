@@ -16,10 +16,11 @@ import process from "process";
 import { execDocker } from "./docker.js";
 import { systemsOutcomes } from "./systems.js";
 import { loadStore, parseInflight } from "./projects.js";
-import { mediaCounts } from "./media.js";
+import { mediaCounts, intakeCount } from "./media.js";
+import { jobLogDrift } from "./rfis.js";
 
 const HOME = homedir();
-const JOBS_DIR = join(HOME, "services", "rising-creek", "jobs");
+const JOBS_DIR = () => join(process.env.SERVICES_DIR || join(HOME, "services"), "rising-creek", "jobs");
 const LOGS = join(HOME, "services", "logs");
 const STATE_FILE = join(import.meta.dirname, "..", "data", "brief-state.json");
 
@@ -144,28 +145,35 @@ function askJakePending() {
 
 // RFIs from every job dir with an rfi.json. Blocking ones are individual tier 2 rows;
 // non-blocking ones collapse to ONE tier 4 row per job.
-function rfiTiers() {
+export function rfiTiers() {
   const t2 = [], t4 = [];
+  const jobsDir = JOBS_DIR();
   let dirs = [];
-  try { dirs = readdirSync(JOBS_DIR); } catch { return { t2, t4, blocking: 0 }; }
+  try { dirs = readdirSync(jobsDir); } catch { return { t2, t4, blocking: 0 }; }
   for (const d of dirs) {
-    const f = join(JOBS_DIR, d, "rfi.json");
+    const f = join(jobsDir, d, "rfi.json");
     if (!existsSync(f)) continue;
     try {
       const rfi = JSON.parse(readFileSync(f, "utf-8"));
       const jobId = d.split("-")[0];
       const mtime = statSync(f).mtimeMs;
+      const drift = jobLogDrift(join(jobsDir, d), rfi.revised);
+      const revised = rfi.revised || new Date(mtime).toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+      const [, month, day] = revised.split("-");
+      const updated = `${Number(month)}/${Number(day)}`;
+      const stale = drift.after > 0 ? ` (list last updated ${updated})` : "";
       let open = 0, oldest = 0;
       for (const g of rfi.groups || []) {
         for (const it of g.items || []) {
           // raised is often missing; fall back to the file's mtime so every row shows an age
           const age = Math.max(0, Date.now() - (it.raised ? Date.parse(it.raised) || mtime : mtime));
           if (it.status === "blocking") {
-            t2.push({ tier: 2, key: `rfi:${jobId}:${it.id}`, title: `RFI ${it.id} ${it.title} (#${jobId})`, age, link: `/rfis/${jobId}#item-${it.id}`, kind: "rfi" });
+            t2.push({ tier: 2, key: `rfi:${jobId}:${it.id}`, title: `RFI ${it.id} ${it.title} (#${jobId})${stale}`, age, link: `/rfis/${jobId}#item-${it.id}`, kind: "rfi" });
           } else if (it.status === "before_submittal") { open++; oldest = Math.max(oldest, age); }
         }
       }
-      if (open) t4.push({ tier: 4, key: `rfis:${jobId}`, title: `${open} open RFI${open === 1 ? "" : "s"} on #${jobId}, oldest ${Math.floor(oldest / DAY)} days`, age: oldest, link: `/rfis/${jobId}` });
+      const logNote = drift.after > 0 ? `. List last updated ${updated}, job log has ${drift.after} newer entr${drift.after === 1 ? "y" : "ies"}` : "";
+      if (open) t4.push({ tier: 4, key: `rfis:${jobId}`, title: `${open} open RFI${open === 1 ? "" : "s"} on #${jobId}, oldest ${Math.floor(oldest / DAY)} days${logNote}`, age: oldest, link: `/rfis/${jobId}` });
     } catch { /* malformed rfi.json: skip, never fabricate */ }
   }
   return { t2, t4 };
@@ -225,11 +233,18 @@ function payApps() {
   return { rows: items };
 }
 
-// Tier 5: photos waiting on a grade. Same count as the Media page and the gallery's
-// Unsorted tab (media.js), one batched row, hidden at zero.
-function tier5Media() {
+// Tier 5: photos waiting on a grade or still in phone intake. Same ungraded count
+// as the Media page and the gallery's Unsorted tab (media.js), hidden at zero.
+export function tier5Media() {
   const undecided = mediaCounts().undecided;
-  return { rows: undecided > 0 ? [{ tier: 5, key: "media:ungraded", title: `${undecided} photos to grade`, age: 0, link: "/media" }] : [], photos: undecided };
+  const rows = undecided > 0 ? [{ tier: 5, key: "media:ungraded", title: `${undecided} photos to grade`, age: 0, link: "/media" }] : [];
+  const intake = intakeCount();
+  if (intake.files > 0) {
+    const oldest = new Date(intake.oldest);
+    const date = oldest.toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "numeric", day: "numeric" });
+    rows.push({ tier: 5, key: "media:intake", title: `${intake.files} phone upload${intake.files === 1 ? "" : "s"} not filed into the photo library, oldest ${date}`, age: Date.now() - oldest.getTime(), link: "/media" });
+  }
+  return { rows, photos: undecided };
 }
 
 // Tier 6: only what Jake flagged. Urgent to-dos, and IN-FLIGHT headings that say they wait on him.
