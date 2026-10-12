@@ -526,3 +526,246 @@ test("an answered ring is never overwritten by a late fallback", async () => {
   await tick(60); // well past the 40 ms test timeout
   assert.equal(ring.get(body.id).state, "answered");
 });
+
+const SESSION = "a1234567-abcd-4123-8123-123456789abc";
+const OTHER_SESSION = "b1234567-abcd-4123-8123-123456789abc";
+
+test("sessionId accepts UUID v1-v8 and normalizes uppercase", () => {
+  for (let version = 1; version <= 8; version++) {
+    const { ring } = rig();
+    const sessionId = SESSION.replace("-4123-", `-${version}123-`);
+    const { status, body } = ring.create({ topic: "T", sessionId: sessionId.toUpperCase() });
+    assert.equal(status, 202);
+    assert.equal(ring.rings.get(body.id).sessionId, sessionId);
+    assert.equal(ring.rings.get(body.id).desk, false);
+  }
+});
+
+test("sessionId rejects malformed UUIDs, invalid versions, variants and non-strings", () => {
+  const { ring } = rig();
+  for (const sessionId of [
+    "", "not-a-uuid", null, 123, true, {}, [],
+    SESSION.replace("-4123-", "-0123-"), SESSION.replace("-4123-", "-9123-"),
+    SESSION.replace("-8123-", "-7123-"), SESSION.replace("-8123-", "-c123-"),
+    SESSION.replace("a123", "g123"), SESSION.replaceAll("-", ""),
+    ` ${SESSION}`, `${SESSION}\n`,
+  ]) {
+    const result = ring.create({ topic: "T", sessionId });
+    assert.equal(result.status, 400, JSON.stringify(sessionId));
+    assert.match(result.body.error, /sessionId.*UUID/);
+  }
+  assert.equal(ring.rings.size, 0);
+  const { status, body } = ring.create({ topic: "T" });
+  assert.equal(status, 202);
+  assert.equal(ring.rings.get(body.id).sessionId, null);
+  assert.equal(ring.rings.get(body.id).desk, false);
+});
+
+test("desk rejects non-booleans", () => {
+  const { ring } = rig();
+  for (const desk of [null, 0, 1, "true", "false", {}, []]) {
+    const result = ring.create({ topic: "T", desk });
+    assert.equal(result.status, 400);
+    assert.match(result.body.error, /desk.*boolean/);
+  }
+  for (const desk of [true, false]) assert.equal(ring.create({ topic: "T", desk }).status, 202);
+});
+
+test("one session shares the caller cap across from strings and UUID casing", () => {
+  const { ring, clock, logLines } = rig();
+  assert.equal(ring.create({ topic: "T", from: "first", sessionId: SESSION }).status, 202);
+  assert.equal(ring.create({ topic: "T", from: "second", sessionId: SESSION.toUpperCase() }).status, 202);
+  assert.equal(ring.create({ topic: "T", from: "first", sessionId: SESSION }).status, 202);
+  assert.equal(ring.create({ topic: "T", from: "second", sessionId: SESSION }).status, 429);
+  assert.equal(logLines().find((l) => l.event === "rate_limited").from, `session:${SESSION}`);
+  assert.equal(ring.create({ topic: "T", from: "first", sessionId: OTHER_SESSION }).status, 202);
+  assert.equal(ring.create({ topic: "T", from: "first" }).status, 202);
+  clock.t += 10 * 60_000;
+  assert.equal(ring.create({ topic: "T", from: "second", sessionId: SESSION }).status, 202);
+});
+
+test("session rings still share the unchanged global cap", () => {
+  const { ring } = rig();
+  for (let i = 0; i < 10; i++) {
+    const sessionId = SESSION.replace("a1234567", `a123456${i}`);
+    assert.equal(ring.create({ topic: "T", sessionId }).status, 202);
+  }
+  assert.equal(ring.create({ topic: "T", sessionId: OTHER_SESSION }).status, 429);
+});
+
+test("session and desk reach the ring, ring_go, voice-dump brief and every ring log line", async () => {
+  for (const desk of [true, false]) {
+    const { ring, calls, logLines } = rig();
+    const ws = device(ring, "dev-laptop-1");
+    const { body } = ring.create({ topic: "T", brief: "B", from: "f", sessionId: SESSION.toUpperCase(), desk });
+    await tick();
+    assert.equal(ws.of("ring")[0].sessionId, SESSION);
+    assert.equal(ws.of("ring")[0].desk, desk);
+    assert.equal(ws.of("ring")[0].dropOk, true);
+    assert.deepEqual(calls.post[0].body, { ring: body.id, topic: "T", text: "B", from: "f", sessionId: SESSION, desk });
+    ws.say({ type: "ring_answer", id: body.id });
+    assert.equal(ws.of("ring_go")[0].sessionId, SESSION);
+    assert.equal(ws.of("ring_go")[0].desk, desk);
+    const lines = logLines().filter((l) => l.id === body.id);
+    assert.ok(lines.some((l) => l.event === "created"));
+    assert.ok(lines.some((l) => l.state === "answered"));
+    for (const line of lines) {
+      assert.equal(line.sessionId, SESSION);
+      assert.equal(line.desk, desk);
+    }
+  }
+});
+
+test("desk passes through without a sessionId", async () => {
+  const { ring, calls, logLines } = rig();
+  const ws = device(ring, "dev-laptop-1");
+  const { body } = ring.create({ topic: "T", desk: true });
+  await tick();
+  assert.equal(ws.of("ring")[0].desk, true);
+  assert.equal(ws.of("ring")[0].dropOk, true);
+  assert.equal(calls.post[0].body.desk, true);
+  ws.say({ type: "ring_answer", id: body.id });
+  assert.equal(ws.of("ring_go")[0].desk, true);
+  assert.ok(logLines().filter((l) => l.id === body.id).every((l) => l.sessionId === null && l.desk === true));
+});
+
+test("cell fallback forwards sessionId and desk to voice-dump", async () => {
+  const { ring, calls } = rig();
+  ring.create({ topic: "T", brief: "B", urgency: "urgent", sessionId: SESSION, desk: true });
+  await tick();
+  assert.deepEqual(calls.post.find((c) => c.url.includes("/tw/ring")).body, {
+    instruct: "T: B", sessionId: SESSION, desk: true,
+  });
+});
+
+test("no-session ring preserves the previous message shape plus dropOk true", async () => {
+  const { ring, clock, logLines } = rig();
+  const ws = device(ring, "dev-laptop-1");
+  const { body } = ring.create({ topic: "T", from: "f" });
+  await tick();
+  assert.deepEqual(ws.of("ring")[0], {
+    type: "ring", id: body.id, topic: "T", from: "f", urgency: "routine",
+    expiresAt: clock.t + 40, ttlMs: 40, dropOk: true,
+  });
+  ws.say({ type: "ring_answer", id: body.id });
+  assert.deepEqual(ws.of("ring_outcome")[0], {
+    type: "ring_outcome", ringId: body.id, sessionId: null, outcome: "answered", at: new Date(clock.t).toISOString(),
+  });
+  assert.ok(logLines().filter((l) => l.id === body.id).every((l) => l.sessionId === null && l.desk === false));
+  ring.create({ topic: "Again", from: "f" });
+  await tick();
+  assert.equal(ws.of("ring")[1].dropOk, true);
+});
+
+test("dropOk allows one ring per session per 15 minutes, with independent sessions", async () => {
+  const { ring, clock } = rig({ opts: { timeouts: { routine: 60_000 } } });
+  const ws = device(ring, "dev-laptop-1");
+  const send = async (sessionId, from = "f") => {
+    const { status, body } = ring.create({ topic: "T", from, sessionId });
+    assert.equal(status, 202);
+    await tick();
+    const message = ws.of("ring").find((m) => m.id === body.id);
+    ws.say({ type: "ring_answer", id: body.id });
+    return message.dropOk;
+  };
+  assert.equal(await send(SESSION), true);
+  clock.t += 15 * 60_000 - 1;
+  assert.equal(await send(SESSION, "other"), false);
+  assert.equal(await send(OTHER_SESSION), true);
+  clock.t += 1;
+  assert.equal(await send(SESSION), true);
+});
+
+test("a ring uses one drop allowance across devices and late arrivals", async () => {
+  const { ring } = rig();
+  const a = device(ring, "dev-laptop-1");
+  const b = device(ring, "dev-phone-01");
+  const first = ring.create({ topic: "T", sessionId: SESSION });
+  await tick();
+  const c = device(ring, "dev-tablet-1");
+  for (const ws of [a, b, c]) assert.equal(ws.of("ring")[0].dropOk, true);
+  a.say({ type: "ring_answer", id: first.body.id });
+  const second = ring.create({ topic: "T", sessionId: SESSION });
+  await tick();
+  for (const ws of [a, b, c]) assert.equal(ws.of("ring")[1].dropOk, false);
+  a.say({ type: "ring_answer", id: second.body.id });
+});
+
+test("no presence or a failed brief does not consume the session drop allowance", async () => {
+  let fail = true;
+  const { ring } = rig({ post: () => ({ ok: !fail, status: fail ? 500 : 200 }) });
+  ring.create({ topic: "T", sessionId: SESSION });
+  await tick();
+  const ws = device(ring, "dev-laptop-1");
+  ring.create({ topic: "T", sessionId: SESSION });
+  await tick();
+  assert.equal(ws.of("ring").length, 0);
+  fail = false;
+  const { body } = ring.create({ topic: "T", sessionId: SESSION });
+  await tick();
+  assert.equal(ws.of("ring")[0].dropOk, true);
+  ws.say({ type: "ring_answer", id: body.id });
+});
+
+test("concurrent brief posts cannot both take the session drop allowance", async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const { ring } = rig({ post: async () => { await gate; return { ok: true, status: 200 }; } });
+  const ws = device(ring, "dev-laptop-1");
+  const a = ring.create({ topic: "A", sessionId: SESSION });
+  const b = ring.create({ topic: "B", sessionId: SESSION });
+  release();
+  await tick();
+  assert.deepEqual(ws.of("ring").map((m) => m.dropOk), [true, false]);
+  ws.say({ type: "ring_answer", id: a.body.id });
+  ws.say({ type: "ring_answer", id: b.body.id });
+});
+
+test("ring outcomes broadcast to all dashboard sockets with sessionId and the injected time", async () => {
+  const { ring, clock } = rig();
+  const a = device(ring, "dev-laptop-1");
+  const b = device(ring, "dev-phone-01");
+  const viewer = new FakeWs(); ring.attach(viewer);
+  const { body } = ring.create({ topic: "T", sessionId: SESSION });
+  await tick();
+  a.say({ type: "ring_later", id: body.id });
+  b.say({ type: "ring_answer", id: body.id });
+  const expected = ["later", "answered"].map((outcome) => ({
+    type: "ring_outcome", ringId: body.id, sessionId: SESSION, outcome, at: new Date(clock.t).toISOString(),
+  }));
+  for (const ws of [a, b, viewer]) assert.deepEqual(ws.of("ring_outcome"), expected);
+});
+
+test("state changes and later use the injectable dashboard broadcaster", async () => {
+  const messages = [];
+  const { ring } = rig({ opts: { broadcast: (m) => messages.push(m) } });
+  const ws = device(ring, "dev-laptop-1");
+  const { body } = ring.create({ topic: "T", sessionId: SESSION });
+  await tick();
+  ws.say({ type: "ring_later", id: body.id });
+  await tick();
+  assert.deepEqual(messages.map((m) => m.outcome), ["later", "declined", "fallback_telegram"]);
+  assert.ok(messages.every((m) => m.type === "ring_outcome" && m.ringId === body.id && m.sessionId === SESSION));
+  assert.equal(ws.of("ring_outcome").length, 0);
+});
+
+test("timeout and all fallback states broadcast their existing outcome names", async () => {
+  for (const [over, urgency, expected] of [
+    [{}, "routine", ["timeout", "fallback_telegram"]],
+    [{}, "urgent", ["timeout", "fallback_cell"]],
+    [{ tgFail: true }, "routine", ["timeout", "fallback_failed"]],
+    [{ post: () => ({ ok: false, status: 500 }) }, "routine", ["no_presence", "fallback_telegram"]],
+  ]) {
+    const { ring } = rig(over);
+    const ws = device(ring, "dev-laptop-1");
+    const { body } = ring.create({ topic: "T", sessionId: SESSION, urgency });
+    await tick(80);
+    assert.deepEqual(ws.of("ring_outcome").map((m) => m.outcome), expected);
+    assert.ok(ws.of("ring_outcome").every((m) => m.ringId === body.id && m.sessionId === SESSION));
+  }
+  const { ring } = rig();
+  const viewer = new FakeWs(); ring.attach(viewer);
+  ring.create({ topic: "T", sessionId: SESSION });
+  await tick();
+  assert.deepEqual(viewer.of("ring_outcome").map((m) => m.outcome), ["no_presence", "fallback_telegram"]);
+});

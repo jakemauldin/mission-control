@@ -44,11 +44,13 @@ export function loopbackOnly(req, res, next) {
 }
 
 const URGENCIES = ["routine", "urgent", "critical"];
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MSG_MAX_BYTES = 4096;
 const MSG_RATE = { max: 20, windowMs: 10_000 };
 const PING_MS = 20_000;
 const DEAD_MS = 45_000;
 const RING_RATE = { max: 3, windowMs: 10 * 60_000 };
+const DROP_MS = 15 * 60_000;
 // Ceilings across every caller, so an agent that keeps changing "from" or "topic" still cannot
 // spam Telegram or Jake's cell. Past the cell cap an urgent ring goes to Telegram only.
 const RING_RATE_ALL = { max: 10, windowMs: 10 * 60_000 };
@@ -121,7 +123,8 @@ export function createRing(opts = {}) {
   const devices = new Map();   // deviceId -> {id,label,open,takesCalls,dropIn,lastSeen,sockets:Set}
   const sockets = new Map();   // ws -> {deviceId|null, lastPong, stamps:[]}
   const rings = new Map();     // id -> record
-  const ringStamps = new Map(); // from -> [ms]
+  const ringStamps = new Map(); // caller key -> [ms]
+  const dropStamps = new Map(); // sessionId -> last allowed drop-in ms
   const cellStamps = new Map(); // topic key -> ms
   let allStamps = [];           // every accepted ring, any caller
   let cellAll = [];             // every cell ring, any topic
@@ -129,8 +132,9 @@ export function createRing(opts = {}) {
 
   function log(entry) {
     try {
+      const r = rings.get(entry.id);
       mkdirSync(dirname(logFile), { recursive: true });
-      appendFileSync(logFile, JSON.stringify({ t: new Date(now()).toISOString(), ...entry }) + "\n");
+      appendFileSync(logFile, JSON.stringify({ t: new Date(now()).toISOString(), ...(r ? { sessionId: r.sessionId, desk: r.desk } : {}), ...entry }) + "\n");
     } catch { /* a full disk must not break ringing */ }
   }
 
@@ -154,6 +158,7 @@ export function createRing(opts = {}) {
   function sendDevice(d, msg, except) {
     for (const ws of d.sockets) if (ws !== except) send(ws, msg);
   }
+  const broadcast = opts.broadcast || ((msg) => { for (const ws of sockets.keys()) send(ws, msg); });
   function pushPresence() {
     const msg = { type: "presence", reachable: reachableDevices().length > 0, devices: summary() };
     for (const [ws, s] of sockets) if (s.deviceId) send(ws, msg);
@@ -272,18 +277,28 @@ export function createRing(opts = {}) {
   const view = (r) => ({
     id: r.id, state: r.state, delivered: r.delivered, topic: r.topic, createdAt: r.createdAt, updatedAt: r.updatedAt,
   });
+  function outcome(r, name) {
+    broadcast({ type: "ring_outcome", ringId: r.id, sessionId: r.sessionId, outcome: name, at: new Date(now()).toISOString() });
+  }
   function setState(r, state, extra = {}) {
     r.state = state;
     r.updatedAt = new Date(now()).toISOString();
     log({ id: r.id, event: "state", state, ...extra });
+    outcome(r, state);
   }
 
   function ringDevice(r, d) {
     if (r.pending.has(d.id) || r.declined.has(d.id)) return;
+    if (r.dropOk === null) {
+      const t = now();
+      const last = dropStamps.get(r.sessionId);
+      r.dropOk = !r.sessionId || last === undefined || t - last >= DROP_MS;
+      if (r.sessionId && r.dropOk) dropStamps.set(r.sessionId, t);
+    }
     r.pending.add(d.id);
     r.delivered = "chime";
     sendDevice(d, {
-      type: "ring", id: r.id, topic: r.topic, from: r.from, urgency: r.urgency,
+      type: "ring", id: r.id, topic: r.topic, from: r.from, urgency: r.urgency, ...r.context, dropOk: r.dropOk,
       expiresAt: r.expiresAt, ttlMs: Math.max(0, r.expiresAt - now()),
     });
   }
@@ -302,8 +317,20 @@ export function createRing(opts = {}) {
     const urgency = input.urgency === undefined ? "routine" : input.urgency;
     if (!topic) return { status: 400, body: { ok: false, error: "topic required" } };
     if (!URGENCIES.includes(urgency)) return { status: 400, body: { ok: false, error: "urgency must be routine, urgent or critical" } };
+    if (input.sessionId !== undefined && (typeof input.sessionId !== "string" || input.sessionId.length !== 36 || !SESSION_ID.test(input.sessionId))) {
+      return { status: 400, body: { ok: false, error: "sessionId must be a valid UUID (v1-v8)" } };
+    }
+    if (input.desk !== undefined && typeof input.desk !== "boolean") {
+      return { status: 400, body: { ok: false, error: "desk must be a boolean" } };
+    }
+    const sessionId = input.sessionId === undefined ? null : input.sessionId.toLowerCase();
+    const desk = input.desk ?? false;
+    const context = {
+      ...(sessionId ? { sessionId } : {}),
+      ...(sessionId || input.desk !== undefined ? { desk } : {}),
+    };
 
-    const key = from || "unknown";
+    const key = sessionId ? `session:${sessionId}` : from || "unknown";
     const t = now();
     const stamps = (ringStamps.get(key) || []).filter((x) => t - x < RING_RATE.windowMs);
     if (stamps.length >= RING_RATE.max) {
@@ -321,11 +348,12 @@ export function createRing(opts = {}) {
     ringStamps.set(key, stamps);
     allStamps.push(t);
     for (const [id, r] of rings) if (t - Date.parse(r.createdAt) > KEEP_MS) rings.delete(id);
+    for (const [id, stamp] of dropStamps) if (t - stamp >= DROP_MS) dropStamps.delete(id);
 
     const iso = new Date(t).toISOString();
     const r = {
       id: randomBytes(16).toString("hex"), state: "ringing", delivered: null, topic, brief, from: key === "unknown" ? "" : from,
-      urgency, createdAt: iso, updatedAt: iso, expiresAt: t + (timeouts[urgency] || timeouts.routine),
+      urgency, sessionId, desk, context, dropOk: null, createdAt: iso, updatedAt: iso, expiresAt: t + (timeouts[urgency] || timeouts.routine),
       pending: new Set(), declined: new Set(), timer: null, answeredBy: null, rung: false,
     };
     rings.set(r.id, r);
@@ -342,7 +370,7 @@ export function createRing(opts = {}) {
     if (briefLive) {
       let ok = false;
       try {
-        const res = await postJson(`${voiceDumpUrl}/live/ceo/brief`, { ring: r.id, topic: r.topic, text: r.brief, from: r.from });
+        const res = await postJson(`${voiceDumpUrl}/live/ceo/brief`, { ring: r.id, topic: r.topic, text: r.brief, from: r.from, ...r.context });
         ok = !!res?.ok;
       } catch { /* voice-dump down */ }
       // Without the brief the voice would not know why it called, so do not ring the laptop.
@@ -354,7 +382,7 @@ export function createRing(opts = {}) {
         return fallback(r, "brief_failed");
       }
     } else {
-      log({ id: r.id, event: "would_send", to: "voice-dump /live/ceo/brief", body: { ring: r.id, topic: r.topic, from: r.from } });
+      log({ id: r.id, event: "would_send", to: "voice-dump /live/ceo/brief", body: { ring: r.id, topic: r.topic, from: r.from, ...r.context } });
     }
     if (r.state !== "ringing") return;
     for (const d of ringableDevices()) ringDevice(r, d);
@@ -380,7 +408,7 @@ export function createRing(opts = {}) {
     let vdToken = "";
     try { vdToken = readToken(); } catch (e) { log({ id, event: "token_unreadable", error: e.code || "read failed" }); }
     const url = `${embedUrl}?job=ceo&autostart=1&embed=1&ring=${r.id}`;
-    send(ws, { type: "ring_go", id: r.id, url, vdToken });
+    send(ws, { type: "ring_go", id: r.id, url, vdToken, ...r.context });
   }
 
   function later(id, device) {
@@ -389,6 +417,7 @@ export function createRing(opts = {}) {
     r.pending.delete(device.id);
     r.declined.add(device.id);
     log({ id, event: "later", device: device.label });
+    outcome(r, "later");
     maybeNoOneLeft(r);
   }
 
@@ -424,7 +453,7 @@ export function createRing(opts = {}) {
       cellAll.push(t);
       jobs.push((async () => {
         const url = `${voiceDumpUrl}/tw/ring?mode=auto`;
-        const body = { instruct: `${r.topic}: ${r.brief}` };
+        const body = { instruct: `${r.topic}: ${r.brief}`, ...r.context };
         if (dryRun) { log({ id: r.id, event: "would_send", to: "voice-dump /tw/ring?mode=auto", body }); cellOk = true; return; }
         try {
           const res = await postJson(url, body);
