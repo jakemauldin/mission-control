@@ -1,0 +1,23 @@
+[
+  {
+    "id": "pacenotes",
+    "name": "PaceNotes",
+    "roadmap": [
+      { "id": "pn-jake", "step": "Install the pilot build", "state": "jake", "lane": "codex", "updated": "2026-10-12 08:30", "run": "fixture run", "pr": "https://example.test/pr/1" },
+      { "id": "pn-lane", "step": "Choose a test account", "state": "waiting", "lane": "jake" },
+      { "id": "pn-done-jake", "step": "Confirm the pilot defaults", "state": "done", "lane": "jake" },
+      { "id": "pn-running", "step": "Run the suite", "state": "running", "lane": "codex" },
+      { "id": "pn-building", "step": "Build the package", "state": "building", "lane": "claude" },
+      { "id": "pn-testing", "step": "Test the package", "state": "testing", "lane": "codex" },
+      { "id": "pn-review", "step": "Review the package", "state": "review", "lane": "claude" },
+      { "id": "pn-next", "step": "Make the console", "state": "next", "lane": "codex" },
+      { "id": "pn-blocked", "step": "Wait for hardware", "state": "blocked", "lane": "claude" },
+      { "id": "pn-waiting", "step": "Wait for a review", "state": "waiting", "lane": "claude" },
+      { "id": "pn-done", "step": "Save the design", "state": "done", "lane": "claude" },
+      { "id": "pn-later", "step": "Make the Windows client", "state": "later", "lane": "claude" },
+      { "step": "Legacy step without an id", "state": "done", "lane": "claude" },
+      { "id": "pn-sloan-engine", "step": "Sloan step 1: engine benchmark harness and decision record", "state": "review", "lane": "codex", "updated": "2026-10-12 10:00" },
+      { "id": "pn-sloan-spend", "step": "Sloan step 2: spending foundation", "state": "building", "lane": "codex" }
+    ]
+  }
+]

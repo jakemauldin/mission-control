@@ -16,7 +16,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "
 import { join } from "path";
 import { homedir } from "os";
 
-const SERVICES = join(homedir(), "services");
+const SERVICES = process.env.SERVICES_DIR || join(homedir(), "services");
 const INFLIGHT = join(SERVICES, "IN-FLIGHT.md");
 const STORE_DIR = join(SERVICES, "projects");
 const STORE = join(STORE_DIR, "projects.json");
