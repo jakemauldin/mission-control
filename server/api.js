@@ -36,6 +36,7 @@ import {
 import dotenv from "dotenv";
 import { createRing, loopbackOnly } from "./lib/ring.js";
 import { getProjects, createProject, updateProject, addTodo, updateTodo, deleteTodo, slugify } from "./lib/projects.js";
+import { getApps, getPrFiles, getAppBuildsDir } from "./lib/appbuilds.js";
 
 dotenv.config({ path: join(import.meta.dirname, ".env") });
 dotenv.config({ path: join(import.meta.dirname, "..", ".env") });
@@ -122,6 +123,19 @@ app.delete("/api/projects/:id/todos/:tid", (req, res) => {
   try { res.json({ ok: deleteTodo(req.params.id, req.params.tid) }); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/projects/slug/:name", (req, res) => res.json({ id: slugify(req.params.name) }));
+
+// ── App Builds: metadata plus on-demand PR patches ──────────────────────────
+app.get("/api/apps", (_req, res) => res.json(getApps()));
+app.get("/api/apps/pr-files", (req, res) => {
+  const { repo, number } = req.query;
+  if (typeof repo !== "string" || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo) ||
+      typeof number !== "string" || !/^[1-9]\d*$/.test(number) || !Number.isSafeInteger(Number(number))) {
+    return res.status(400).json({ error: "repo (owner/name) and a positive PR number required" });
+  }
+  const files = getPrFiles(repo, Number(number));
+  if (!files) return res.status(404).json({ error: "not found" });
+  res.json(files);
+});
 
 // ── Health: read latest health-*.log ─────────────────────────
 app.get("/api/health", (_req, res) => {
@@ -679,6 +693,18 @@ try {
   const genDir = join(import.meta.dirname, "data", "media-gen-queue");
   chokidar.watch(genDir, { ignoreInitial: true, awaitWriteFinish: { stabilityThreshold: 400 } })
     .on("all", () => broadcast({ type: "gen_update", topic: "media:gen", time: new Date().toISOString() }));
+} catch (e) { console.warn("watcher setup failed:", e.message); }
+
+try {
+  const files = ["apps.json", "status.json", "data.json"].map((file) => join(getAppBuildsDir(), file));
+  let debounce = null;
+  chokidar.watch(files, { ignoreInitial: true, awaitWriteFinish: { stabilityThreshold: 400 } })
+    .on("all", () => {
+      clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        broadcast({ type: "apps_update", topic: "apps", time: new Date().toISOString() });
+      }, 500);
+    });
 } catch (e) { console.warn("watcher setup failed:", e.message); }
 
 // Periodic health poll → push to clients
