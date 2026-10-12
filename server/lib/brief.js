@@ -17,7 +17,7 @@ import { execDocker } from "./docker.js";
 import { systemsOutcomes } from "./systems.js";
 import { loadStore, parseInflight } from "./projects.js";
 import { mediaCounts, intakeCount } from "./media.js";
-import { jobLogDrift } from "./rfis.js";
+import { jobLogDrift, stageOf } from "./rfis.js";
 
 const HOME = homedir();
 const JOBS_DIR = () => join(process.env.SERVICES_DIR || join(HOME, "services"), "rising-creek", "jobs");
@@ -165,11 +165,14 @@ export function rfiTiers() {
       let open = 0, oldest = 0;
       for (const g of rfi.groups || []) {
         for (const it of g.items || []) {
-          // raised is often missing; fall back to the file's mtime so every row shows an age
-          const age = Math.max(0, Date.now() - (it.raised ? Date.parse(it.raised) || mtime : mtime));
+          const stage = stageOf(it);
+          if (stage !== "needs_answer" && stage !== "our_move") continue;
+          // Dates are often missing; fall back to the file's mtime so every row shows an age
+          const since = it.next?.since || it.raised;
+          const age = Math.max(0, Date.now() - (since ? Date.parse(since) || mtime : mtime));
           if (it.status === "blocking") {
-            t2.push({ tier: 2, key: `rfi:${jobId}:${it.id}`, title: `RFI ${it.id} ${it.title} (#${jobId})${stale}`, age, link: `/rfis/${jobId}#item-${it.id}`, kind: "rfi" });
-          } else if (it.status === "before_submittal") { open++; oldest = Math.max(oldest, age); }
+            t2.push({ tier: 2, key: `rfi:${jobId}:${it.id}`, title: `RFI ${it.id} ${it.title} (#${jobId})${it.next?.who ? `, next: ${it.next.who}` : ""}${stale}`, age, link: `/rfis/${jobId}#item-${it.id}`, kind: "rfi" });
+          } else { open++; oldest = Math.max(oldest, age); }
         }
       }
       const logNote = drift.after > 0 ? `. List last updated ${updated}, job log has ${drift.after} newer entr${drift.after === 1 ? "y" : "ies"}` : "";

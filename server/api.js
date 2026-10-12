@@ -465,11 +465,11 @@ app.get("/api/rfis/:jobId", (req, res) => {
   if (!rfi) return res.status(404).json({ ok: false, error: "no rfi.json for that job" });
   res.json({ ok: true, data: rfi });
 });
-// Phase 2: the narrow RFI write path — exactly two fields (DESIGN.md §4)
+// Phase 2: the narrow RFI write path — status, note, stage, stands and next (DESIGN.md §4)
 app.patch("/api/rfis/:jobId/items/:itemId", (req, res) => {
-  const { status, note } = req.body || {};
-  if (status === undefined && !note) return res.status(400).json({ ok: false, error: "status or note required" });
-  const r = updateRfiItem(req.params.jobId, req.params.itemId, { status, note });
+  const { status, note, stage, stands, next } = req.body || {};
+  if ([status, note, stage, stands, next].every(v => v === undefined)) return res.status(400).json({ ok: false, error: "status, note, stage, stands or next required" });
+  const r = updateRfiItem(req.params.jobId, req.params.itemId, { status, note, stage, stands, next });
   if (r.error) return res.status(400).json({ ok: false, error: r.error });
   res.json({ ok: true, data: r.item });
 });
