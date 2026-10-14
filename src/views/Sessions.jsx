@@ -9,6 +9,7 @@ import { C, STATUS } from "../lib/colors";
 import { btnS } from "../lib/helpers";
 import { Section } from "../components/ui/Card";
 import { useWebSocket } from "../hooks/useWebSocket";
+import SessionTags from "./SessionTags";
 
 const HOW = { desktop: "desktop app", device: "phone device", revived: "revived" };
 
@@ -239,6 +240,7 @@ export default function SessionsView() {
           {err || serverErr ? `Refresh failed, showing data from ${fmtAge(staleSec)} ago.` : `Refresh is slow, showing data from ${fmtAge(staleSec)} ago.`}
         </div>
       )}
+      <SessionTags />
       {!filtering && (
         <Section title="Recent">
           {recent.map((s) => <SessionRow key={s.uuid} s={s} busy={busy} onAction={act} tag />)}
