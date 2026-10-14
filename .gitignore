@@ -33,3 +33,7 @@ server/.env
 # Generated knowledge graph (local, 35M+ — never commit)
 graphify-out/
 **/graphify-out/
+
+# Windows page: windows Jake added + hidden ids (server/lib/windows.js)
+server/data/windows.json
+server/data/windows.json.tmp

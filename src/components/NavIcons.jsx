@@ -8,6 +8,7 @@ const ICONS = {
   money: <P><circle cx="12" cy="12" r="9" /><path d="M14.5 9.2c-.5-.8-1.4-1.2-2.5-1.2-1.4 0-2.5.7-2.5 1.9 0 2.7 5 1.3 5 4 0 1.2-1.1 2-2.5 2-1.2 0-2.2-.5-2.7-1.4" /><path d="M12 6.5V8M12 16v1.5" /></P>,
   rfis: <P><path d="M21 12a8 8 0 01-11.6 7.1L4 20l1-4.6A8 8 0 1121 12z" /><path d="M9.5 10a2.5 2.5 0 114 2c-.8.6-1.5 1-1.5 2" /><path d="M12 17h.01" /></P>,
   apps: <P><rect x="3" y="3" width="7.5" height="7.5" rx="1.5" /><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" /><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" /><path d="M17.25 13.5v7.5M13.5 17.25H21" /></P>,
+  windows: <P><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 8.5h18" /><path d="M12 8.5V20" /><path d="M12 14.25h9" /></P>,
   sessions: <P><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M7 9l3 3-3 3" /><path d="M13 15h4" /></P>,
 };
 

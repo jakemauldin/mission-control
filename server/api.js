@@ -38,6 +38,7 @@ import { createRing, loopbackOnly } from "./lib/ring.js";
 import { getProjects, createProject, updateProject, addTodo, updateTodo, deleteTodo, slugify } from "./lib/projects.js";
 import { getApps, getPrFiles, getAppBuildsDir } from "./lib/appbuilds.js";
 import { getWork } from "./lib/workitems.js";
+import { listWindows, addWindow, setHidden as setWindowHidden, removeWindow } from "./lib/windows.js";
 import { applyWorkAction } from "./lib/workactions.js";
 
 dotenv.config({ path: join(import.meta.dirname, ".env") });
@@ -834,6 +835,26 @@ app.post("/api/browser/tabs/:id/activate", async (req, res) => {
 app.post("/api/browser/tabs/:id/close", async (req, res) => {
   const r = await closeBrowserTab(req.params.id);
   res.status(r.ok ? 200 : r.notFound ? 404 : 502).json(r);
+});
+
+// ── Windows: live views of Kasm, OpenClaw, App Builds and whatever Jake adds (lib/windows.js) ──
+// Each window is probed from this host (4 s timeout, 60 s cache) for up/down and whether a browser will
+// frame it; the page shows a live frame or a click-through tile from that answer. ?fresh=1 skips the cache.
+app.get("/api/windows", async (req, res) => {
+  try { res.json({ ok: true, data: await listWindows({ fresh: req.query.fresh === "1" }) }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post("/api/windows", (req, res) => {
+  const r = addWindow(req.body || {});
+  res.status(r.ok ? 200 : 400).json(r);
+});
+app.patch("/api/windows/:id", (req, res) => {
+  const r = setWindowHidden(req.params.id, !!req.body?.hidden);
+  res.status(r.ok ? 200 : 404).json(r);
+});
+app.delete("/api/windows/:id", (req, res) => {
+  const r = removeWindow(req.params.id);
+  res.status(r.ok ? 200 : 400).json(r);
 });
 
 // ── Skills: every SKILL.md by area — read / edit / compose / deploy (lib/skills.js) ──
