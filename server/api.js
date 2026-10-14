@@ -18,6 +18,7 @@ import {
   listSessions, reviveSession, stopSession, pinSession, parkSessions, isUuid,
   getSettings as getSessionSettings, saveSettings as saveSessionSettings, startAutoPark, startAutoRevive,
 } from "./lib/sessions.js";
+import { listSessionTags } from "./lib/sessionTags.js";
 import { listTabs as listBrowserTabs, openUrl as openBrowserUrl, activate as activateBrowserTab, close as closeBrowserTab, isHttpUrl } from "./lib/kasm.js";
 import { listSkills, getSkill, saveSkill, createSkill, copySkill, deleteSkill, forkSkill } from "./lib/skills.js";
 import chokidar from "chokidar";
@@ -794,6 +795,10 @@ setInterval(async () => {
 app.get("/api/sessions", async (_req, res) => {
   const r = await listSessions();
   res.status(r.ok ? 200 : 500).json({ ok: r.ok, data: r.sessions, settings: getSessionSettings(), message: r.message, ageSec: r.ageSec, refreshing: r.refreshing, refreshError: r.refreshError });
+});
+app.get("/api/sessions/tags", async (_req, res) => {
+  const r = await listSessionTags();
+  res.status(r.ok ? 200 : 500).json({ ok: r.ok, data: r.rows, message: r.message, ageSec: r.ageSec, refreshError: r.refreshError });
 });
 app.get("/api/sessions/settings", (_req, res) => res.json({ ok: true, data: getSessionSettings() }));
 app.put("/api/sessions/settings", (req, res) => res.json({ ok: true, data: saveSessionSettings(req.body || {}) }));
