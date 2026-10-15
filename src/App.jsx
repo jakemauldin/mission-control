@@ -34,6 +34,7 @@ import SkillsView from "./views/Skills";
 import BillsSheetView from "./views/BillsSheet";
 import ExpertiseView from "./views/Expertise";
 import AccessView from "./views/Access";
+import WindowsView from "./views/Windows";
 
 function BriefRoute() {
   const [sp] = useSearchParams();
@@ -47,6 +48,7 @@ function BriefRoute() {
 const NAV = {
   primary: [
     { to: "/", label: "Brief", short: "Brief", icon: "brief", end: true },
+    { to: "/windows", label: "Windows", short: "Windows", icon: "windows" },
     { to: "/projects", label: "Projects", short: "Projects", icon: "projects" },
     { to: "/apps", label: "Apps", short: "Apps", icon: "apps" },
     { to: "/money/pay-apps", label: "Money", short: "Money", icon: "money", match: "/money" },
@@ -140,6 +142,7 @@ function Shell() {
           <Route path="/land" element={<LandFinderView />} />
           <Route path="/expertise" element={<ExpertiseWrap />} />
           <Route path="/access" element={<AccessView />} />
+          <Route path="/windows" element={<WindowsView />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

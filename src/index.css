@@ -69,3 +69,6 @@ h1,h2,h3,h4,h5,h6, nav, button { font-family: 'Poppins', Helvetica, Arial, sans-
   .rc-apps-rowh { grid-template-columns: 1fr auto !important; }
   .rc-apps-rowh > :first-child { grid-column: 1 / -1; justify-self: start; }
 }
+
+/* Windows page (src/views/Windows.jsx): two live windows a row on a laptop, one on a phone */
+.rc-windows { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr)); }
